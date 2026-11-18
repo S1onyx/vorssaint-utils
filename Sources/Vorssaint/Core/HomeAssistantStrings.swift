@@ -34,7 +34,7 @@ struct HomeAssistantStrings {
         case "fan_only": return self[.fanOnly]
         case "unknown": return self[.unknown]
         case "unavailable": return self[.unavailable]
-        default: return state
+        default: return HomeAssistantExtraStrings.current.state(state) ?? state
         }
     }
     func error(_ failure: HomeAssistantFailure) -> String {

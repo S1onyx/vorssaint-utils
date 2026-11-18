@@ -86,7 +86,8 @@ struct HomeAssistantEntity: Codable, Identifiable, Equatable, Sendable {
         return minimum...maximum
     }
     var eligible: Bool {
-        guard ["light", "switch", "sensor", "binary_sensor", "scene", "script", "climate", "cover"].contains(domain) else { return false }
+        guard ["light", "switch", "sensor", "binary_sensor", "scene", "script", "climate", "cover",
+               "camera", "lock", "alarm_control_panel"].contains(domain) else { return false }
         return domain != "cover" || !["garage", "gate", "door"].contains(attributes["device_class"]?.string ?? "")
     }
     var symbol: String {
@@ -98,6 +99,9 @@ struct HomeAssistantEntity: Codable, Identifiable, Equatable, Sendable {
         case "scene": return "sparkles"
         case "script": return "play.circle"
         case "binary_sensor": return "sensor"
+        case "camera": return "video.fill"
+        case "lock": return state == "locked" ? "lock.fill" : "lock.open.fill"
+        case "alarm_control_panel": return state.hasPrefix("armed") || state == "triggered" ? "checkmark.shield.fill" : "shield"
         default: return "gauge.with.dots.needle.50percent"
         }
     }
@@ -109,6 +113,7 @@ struct HomeAssistantEntity: Codable, Identifiable, Equatable, Sendable {
         switch domain {
         case "light", "switch": return state == "on" ? "turn_off" : "turn_on"
         case "scene", "script": return "turn_on"
+        case "lock": return state == "locked" ? "unlock" : ["unlocked", "open"].contains(state) ? "lock" : nil
         case "cover":
             // A moving cover stops; a resting one heads the other way.
             if ["opening", "closing"].contains(state), supports(8) { return "stop_cover" }
@@ -123,6 +128,21 @@ struct HomeAssistantEntity: Codable, Identifiable, Equatable, Sendable {
     var levelPercent: Double {
         if hasPosition { return min(100, max(0, attributes["current_position"]?.number ?? (state == "open" ? 100 : 0))) }
         return brightnessPercent
+    }
+    /// Pictures from Home Assistant's proxy carry their own access token, so
+    /// they resolve against the server; integrations may send a full URL.
+    func pictureURL(base: URL?) -> URL? {
+        guard let path = attributes["entity_picture"]?.string, !path.isEmpty else { return nil }
+        if path.hasPrefix("/") { return base.flatMap { URL(string: path, relativeTo: $0)?.absoluteURL } }
+        guard let url = URL(string: path), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
+    }
+    /// The alarm or lock asks for a code before it acts.
+    var needsCode: Bool { attributes["code_format"].map { $0 != .null } ?? false }
+    /// A doorbell entity reports a ring: a binary sensor turning on, or an event entity firing.
+    static func rang(_ entity: HomeAssistantEntity, after previous: HomeAssistantEntity?) -> Bool {
+        guard let previous, entity.available, previous.state != entity.state else { return false }
+        return entity.domain == "event" ? true : entity.state == "on"
     }
     var brightnessPercent: Double {
         guard domain == "light", state == "on" else { return 0 }
@@ -399,6 +419,14 @@ struct HomeAssistantAction: Equatable, Sendable {
             if let brightness = data["brightness"] { expected["brightness"] = brightness }
         case ("scene", "turn_on"), ("script", "turn_on"):
             allowed = data.isEmpty
+        case ("lock", "lock"), ("lock", "unlock"), ("lock", "open"):
+            allowed = (service != "open" || entity.supports(1)) && Self.codeOnly(data)
+        case ("alarm_control_panel", "alarm_disarm"):
+            allowed = Self.codeOnly(data)
+        case ("alarm_control_panel", "alarm_arm_home"), ("alarm_control_panel", "alarm_arm_away"),
+             ("alarm_control_panel", "alarm_arm_night"):
+            let bit = service == "alarm_arm_home" ? 1 : service == "alarm_arm_away" ? 2 : 4
+            allowed = entity.supports(bit) && Self.codeOnly(data)
         case ("cover", "open_cover"), ("cover", "close_cover"), ("cover", "stop_cover"):
             allowed = data.isEmpty && entity.supports(service == "open_cover" ? 1 : service == "close_cover" ? 2 : 8)
             // Covers may take minutes to move; acknowledge the command, display real movement events.
@@ -425,6 +453,13 @@ struct HomeAssistantAction: Equatable, Sendable {
         guard allowed else { throw HomeAssistantFailure.unsupported }
         return Self(domain: entity.domain, service: service, entityID: entity.id, data: data, expected: expected)
     }
+
+    /// Nothing, or a short PIN for locks and alarms.
+    private static func codeOnly(_ data: [String: HomeAssistantValue]) -> Bool {
+        data.isEmpty || (data.count == 1 && data["code"]?.string.map { !$0.isEmpty && $0.count <= 32 } == true)
+    }
+    /// Opening a door or disarming an alarm asks first; a stray click must not do either.
+    static func needsConfirmation(_ service: String) -> Bool { ["unlock", "open", "alarm_disarm"].contains(service) }
 
     func confirmed(by entity: HomeAssistantEntity) -> Bool {
         !expected.isEmpty && expected.allSatisfy { key, value in
@@ -534,12 +569,7 @@ struct HomeAssistantMediaPlayer: Equatable, Identifiable {
 
     /// Cover art: Home Assistant's proxy path carries its own access token, so
     /// it resolves against the server; Music Assistant may send a full URL.
-    func pictureURL(base: URL?) -> URL? {
-        guard let path = text("entity_picture") else { return nil }
-        if path.hasPrefix("/") { return base.flatMap { URL(string: path, relativeTo: $0)?.absoluteURL } }
-        guard let url = URL(string: path), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
-        return url
-    }
+    func pictureURL(base: URL?) -> URL? { entity.pictureURL(base: base) }
 
     func allows(_ service: String, data: [String: HomeAssistantValue]) -> Bool {
         switch service {

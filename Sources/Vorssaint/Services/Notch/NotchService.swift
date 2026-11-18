@@ -4154,6 +4154,12 @@ final class NotchService: ObservableObject {
     private func bindEvents() {
         subscriptions.removeAll()
         if modules.contains(.homeAssistant) {
+            // A ring opens the island on the doorbell camera and keeps it open.
+            HomeAssistantService.shared.$ringing.compactMap { $0 }.receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    guard !HomeAssistantService.shared.doorbellCameraID.isEmpty else { return }
+                    self?.open(.homeAssistant, pinned: true)
+                }.store(in: &subscriptions)
             let home = HomeAssistantService.shared
             Publishers.CombineLatest3(home.$pages, home.$activePageID, home.$columns)
                 .map { pages, id, columns in

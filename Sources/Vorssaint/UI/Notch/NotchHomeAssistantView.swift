@@ -112,6 +112,7 @@ struct NotchHomeAssistantSettingsControls: View {
                     }
                     .frame(maxHeight: 260)
                 }
+                HomeAssistantFeatureSettings()
             }
         }
         .disabled(!AppFeature.notchHomeAssistant.isAvailable || preview)
@@ -240,9 +241,15 @@ struct NotchHomeAssistantView: View {
             if selected == nil && state.pages.count > 1 { pageNavigation }
             if let selected {
                 Button { self.selected = nil } label: { Label(l10n.s.actionBack, systemImage: "chevron.left") }
+                if service.ringing != nil, selected == service.doorbellCameraID { doorbellBanner }
                 ScrollView {
                     if let entity = state.entities[selected], entity.eligible {
                         VStack(alignment: .leading, spacing: 12) {
+                            if entity.domain == "camera" {
+                                HomeAssistantCameraImage(entityID: entity.id, interval: 1, fit: true)
+                                    .frame(maxWidth: .infinity, maxHeight: max(120, size.height - 120))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
                             Label(state.displayName(entity.id), systemImage: entity.symbol).font(.headline)
                             Text(reading(entity)).foregroundStyle(.secondary)
                             HomeAssistantEntityControls(entity: entity)
@@ -270,7 +277,12 @@ struct NotchHomeAssistantView: View {
                 NotchService.shared.setPageLayer(.homeAssistant, close: selected == nil ? nil : { selected = nil })
             }
         }
-        .onAppear { if !preview { service.setVisible(true, surface: surface) } }
+        .onAppear {
+            if !preview { service.setVisible(true, surface: surface) }
+            showDoorbell(service.ringing)
+        }
+        .onReceive(service.$ringing) { showDoorbell($0) }
+        .onChange(of: selected) { if selected != service.doorbellCameraID { service.endRinging() } }
         .onDisappear {
             if !preview {
                 service.setVisible(false, surface: surface)
@@ -278,6 +290,32 @@ struct NotchHomeAssistantView: View {
             }
         }
     }
+    /// A ring within the last minute opens the doorbell camera's details.
+    private func showDoorbell(_ rang: Date?) {
+        guard !preview, let rang, Date().timeIntervalSince(rang) < 60, !service.doorbellCameraID.isEmpty,
+              state.entities[service.doorbellCameraID] != nil else { return }
+        selected = service.doorbellCameraID
+    }
+
+    private var doorbellBanner: some View {
+        let extra = HomeAssistantExtraStrings.current
+        let lock = state.entities[service.doorbellLockID]
+        return HStack(spacing: 8) {
+            Image(systemName: "bell.and.waves.left.and.right.fill").foregroundStyle(.yellow)
+                .symbolEffect(.bounce, options: .repeating)
+            Text(extra["ringing"]).font(.system(size: 13, weight: .semibold))
+            Spacer(minLength: 0)
+            if let lock {
+                Button {
+                    HomeAssistantConfirmation.perform(lock.supports(1) ? "open" : "unlock", entity: lock,
+                                                      name: state.displayName(lock.id))
+                } label: { Label(extra["openDoor"], systemImage: "door.left.hand.open") }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+                .disabled(state.connection != .connected || preview)
+            }
+        }
+    }
+
     private var pageNavigation: some View {
         let index = state.pages.firstIndex { $0.id == state.activePageID } ?? 0
         let page = state.pages.first { $0.id == state.activePageID }
@@ -315,7 +353,10 @@ struct NotchHomeAssistantView: View {
                                     locale: Locale(identifier: l10n.language.rawValue), temperatureUnit: state.temperatureUnit,
                                     activate: {
                                         guard service.activePageID == pageID else { return }
-                                        if let action = service.entities[id]?.primaryService { service.perform(action, entityID: id) }
+                                        guard let entity = service.entities[id], let action = entity.primaryService else { return }
+                                        if HomeAssistantAction.needsConfirmation(action) || entity.needsCode {
+                                            HomeAssistantConfirmation.perform(action, entity: entity, name: state.displayName(id))
+                                        } else { service.perform(action, entityID: id) }
                                     }, details: { if service.activePageID == pageID { selected = id } },
                                     setBrightness: { if service.activePageID == pageID { service.setBrightness($0, entityID: id) } },
                                     setColor: { if service.activePageID == pageID { service.setColor($0, entityID: id) } })
@@ -485,6 +526,8 @@ private struct HomeAssistantEntityControls: View {
                         service.perform("set_temperature", entityID: entity.id, data: ["temperature": .number(temperature)])
                     }
                 }
+            case "lock", "alarm_control_panel":
+                HomeAssistantSecurityControls(entity: entity, name: service.displayName(entity.id))
             default: EmptyView()
             }
         }

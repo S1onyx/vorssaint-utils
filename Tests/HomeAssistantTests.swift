@@ -104,6 +104,29 @@ enum HomeAssistantTests {
         let items = HomeAssistantLibraryItem.list(library, type: "playlist")
         suite.expect(items.count == 1 && items[0].uri == "library://playlist/1" && items[0].imageURL != nil,
                      "library items need a name and a URI")
+
+        let door = entity("lock.front", state: "locked", attributes: ["supported_features": .number(1), "code_format": .string("^\\d{4}$")])
+        suite.expect(door.eligible && door.primaryService == "unlock" && door.needsCode, "a locked door unlocks on click with a code")
+        suite.expect(HomeAssistantAction.needsConfirmation("unlock") && HomeAssistantAction.needsConfirmation("alarm_disarm")
+                     && !HomeAssistantAction.needsConfirmation("lock"), "unlocking and disarming ask first")
+        suite.expect((try? HomeAssistantAction.make("unlock", entity: door, data: ["code": .string("1234")])) != nil
+                     && (try? HomeAssistantAction.make("unlock", entity: door, data: ["pin": .string("1234")])) == nil,
+                     "only a code travels with a lock command")
+        let alarm = entity("alarm_control_panel.home", state: "disarmed", attributes: ["supported_features": .number(2)])
+        suite.expect((try? HomeAssistantAction.make("alarm_arm_away", entity: alarm)) != nil
+                     && (try? HomeAssistantAction.make("alarm_arm_home", entity: alarm)) == nil
+                     && alarm.primaryService == nil, "an alarm arms only the advertised modes, from its details")
+        let bell = entity("binary_sensor.bell", state: "on")
+        suite.expect(HomeAssistantEntity.rang(bell, after: entity("binary_sensor.bell", state: "off"))
+                     && !HomeAssistantEntity.rang(bell, after: nil)
+                     && !HomeAssistantEntity.rang(entity("binary_sensor.bell", state: "off"), after: bell),
+                     "a doorbell sensor rings when it turns on, not on the first snapshot")
+        suite.expect(HomeAssistantEntity.rang(entity("event.bell", state: "2026-11-18T10:00:01Z"),
+                                              after: entity("event.bell", state: "2026-11-18T09:00:00Z")),
+                     "a doorbell event rings when it fires")
+        suite.expect(entity("camera.door", attributes: ["entity_picture": .string("/api/camera_proxy/camera.door?token=t")])
+                        .pictureURL(base: URL(string: "https://ha.example"))?.absoluteString
+                     == "https://ha.example/api/camera_proxy/camera.door?token=t", "camera pictures resolve against the server")
     }
 
     static func entity(_ id: String = "light.desk", state: String = "off",
@@ -147,9 +170,9 @@ enum HomeAssistantTests {
         }
         suite.expect((try? HomeAssistantAction.make("turn_on", entity: entity(state: "unavailable"))) == nil,
                      "unavailable entities cannot be controlled")
-        for (id, attributes) in [("lock.front", [String: HomeAssistantValue]()),
-                                 ("cover.garage", ["device_class": .string("garage")]),
-                                 ("camera.front", [:]), ("media_player.tv", [:])] {
+        // Locks and cameras are cards in this fork; media players live on the music page.
+        for (id, attributes) in [("cover.garage", ["device_class": .string("garage")] as [String: HomeAssistantValue]),
+                                 ("media_player.tv", [:]), ("vacuum.robo", [:])] {
             suite.expect(!entity(id, attributes: attributes).eligible, "out-of-scope entity is excluded")
         }
         let cover = entity("cover.blind", state: "open", attributes: ["supported_features": .number(3)])

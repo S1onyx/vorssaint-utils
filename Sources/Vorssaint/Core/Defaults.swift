@@ -913,6 +913,9 @@ enum DefaultsKey {
     static let notchHomeAssistantPages = "notchHomeAssistantPages"
     static let notchHomeAssistantActivePage = "notchHomeAssistantActivePage"
     static let notchHomeAssistantMusicPlayer = "notchHomeAssistantMusicPlayer"
+    static let notchHomeAssistantDoorbell = "notchHomeAssistantDoorbell"
+    static let notchHomeAssistantDoorbellCamera = "notchHomeAssistantDoorbellCamera"
+    static let notchHomeAssistantDoorbellLock = "notchHomeAssistantDoorbellLock"
     static let notchWatchEnabled = "notchWatchEnabled"
     static let notchWatchSound = "notchWatchSound"
     static let notchWatchCondition = "notchWatchCondition"
@@ -1569,6 +1572,9 @@ enum Defaults {
         DefaultsKey.notchHomeAssistantPages: [[String: Any]](),
         DefaultsKey.notchHomeAssistantActivePage: "",
         DefaultsKey.notchHomeAssistantMusicPlayer: "",
+        DefaultsKey.notchHomeAssistantDoorbell: "",
+        DefaultsKey.notchHomeAssistantDoorbellCamera: "",
+        DefaultsKey.notchHomeAssistantDoorbellLock: "",
         DefaultsKey.notchWatchEnabled: true,
         DefaultsKey.notchWatchSound: true,
         DefaultsKey.notchWatchCondition: NotchWatchCondition.changes.rawValue,

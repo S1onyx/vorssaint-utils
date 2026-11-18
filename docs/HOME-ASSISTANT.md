@@ -100,11 +100,28 @@ including HS, XY, RGBW and RGBWW. The card follows actual server updates rather
 than assuming that the requested RGB is reproduced exactly within the lamp's gamut.
 Color-temperature-only and on/off-only lights do not offer this selector.
 Right-click a card and choose **Details** to open additional controls. Sensors,
-climate devices, and covers open their details when clicked. Cameras, locks, alarms,
-and door/garage/gate covers are outside this version's scope. Media players
+climate devices, and covers open their details when clicked. Door/garage/gate covers
+are outside this version's scope. Media players
 appear on the music page instead; see below.
 **Open dashboard** opens the server in your default browser, using that browser's
 own login session. The web dashboard is not embedded in the island.
+
+## Cameras, locks, alarms and the doorbell
+
+Camera cards show the camera's latest picture, refreshed every ten seconds while
+visible; their details refresh every second. Pictures come from Home Assistant's
+`camera_proxy` with the entity's own access token.
+
+Click a lock card to lock or unlock it. Unlocking and opening ask for confirmation;
+a lock or alarm with a `code_format` asks for its code, which is sent once and never
+stored. Alarm panels arm (home, away, night, as advertised) and disarm from their
+details; disarming asks first.
+
+Under **Doorbell** in the Home Assistant settings, choose the binary sensor or
+`event` entity that reports a ring, a camera and optionally a door lock. A ring opens
+the island on the camera's live picture with **Open door**, which asks before it
+unlocks (or opens, when the lock supports it). This needs the background connection
+described below.
 
 ## Media players on the music page
 

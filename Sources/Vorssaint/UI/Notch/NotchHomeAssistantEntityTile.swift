@@ -64,6 +64,8 @@ struct NotchHomeAssistantEntityTile: View, Equatable {
         case "light": return .yellow
         case "switch", "binary_sensor": return .green
         case "climate": return .orange
+        case "lock": return entity?.state == "locked" ? .green : .orange
+        case "alarm_control_panel": return entity?.state == "triggered" ? .red : .green
         case "scene", "script": return .purple
         default: return .cyan
         }
@@ -71,7 +73,8 @@ struct NotchHomeAssistantEntityTile: View, Equatable {
     private var fill: Double {
         guard entity?.available == true else { return 0 }
         if dimmable { return percent / 100 }
-        return entity?.state == "on" || entity?.state == "open" ? 1 : 0
+        if entity?.domain == "alarm_control_panel" { return entity?.state == "disarmed" ? 0 : 1 }
+        return ["on", "open", "unlocked", "locked"].contains(entity?.state ?? "") ? 1 : 0
     }
     private var displayedValue: String {
         guard columns >= 4, let entity, entity.available, entity.domain != "climate" else { return reading.value }
@@ -109,6 +112,12 @@ struct NotchHomeAssistantEntityTile: View, Equatable {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(hovered ? 0.12 : 0.045))
+                    if let entity, entity.domain == "camera", connected {
+                        // The camera's latest picture, darkened under the name.
+                        HomeAssistantCameraImage(entityID: entity.id)
+                            .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                            .overlay(LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom))
+                    }
                     tint.opacity(connected ? 0.22 : 0.1).frame(width: geometry.size.width * fill)
                 }
                 .animation(reduceMotion || editing ? nil : .smooth(duration: 0.24), value: fill)

@@ -141,6 +141,13 @@ final class HomeAssistantService: ObservableObject {
     @Published private(set) var sensors: [String: [String]] = [:]
     @Published private(set) var pending: Set<String> = []
     @Published private(set) var failure: HomeAssistantFailure?
+    /// When the configured doorbell last rang; the island opens on its camera.
+    @Published private(set) var ringing: Date?
+    var doorbellID: String { defaults.string(forKey: DefaultsKey.notchHomeAssistantDoorbell) ?? "" }
+    var doorbellCameraID: String { defaults.string(forKey: DefaultsKey.notchHomeAssistantDoorbellCamera) ?? "" }
+    var doorbellLockID: String { defaults.string(forKey: DefaultsKey.notchHomeAssistantDoorbellLock) ?? "" }
+    func setDoorbell(_ id: String, key: String) { defaults.set(id, forKey: key); objectWillChange.send() }
+    func endRinging() { ringing = nil }
     private let defaults: UserDefaults
     private let credentials: any HomeAssistantCredentialStore
     private let makeTransport: (URL) -> any HomeAssistantTransport
@@ -411,6 +418,8 @@ final class HomeAssistantService: ObservableObject {
                             let previous = self.store.entities[id]
                             self.store.change(id: id, value: value)
                             guard previous != self.store.entities[id] else { continue }
+                            if id == self.doorbellID, let entity = self.store.entities[id],
+                               HomeAssistantEntity.rang(entity, after: previous) { self.ringing = Date() }
                         }
                         self.objectWillChange.send()
                         for (id, action) in self.confirmations where self.entities[id].map(action.confirmed) == true {

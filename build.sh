@@ -283,6 +283,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Notch/NotchPreferredPlayer.swift
         Sources/Vorssaint/Core/NotchFilesStrings.swift
         Sources/Vorssaint/Core/HomeAssistantStrings.swift
+        Sources/Vorssaint/Core/HomeAssistantExtraStrings.swift
         Sources/Vorssaint/Services/HomeAssistant/HomeAssistantSupport.swift
         Sources/Vorssaint/Services/HomeAssistant/HomeAssistantClient.swift
         Sources/Vorssaint/Services/HomeAssistant/HomeAssistantService.swift
