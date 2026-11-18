@@ -823,7 +823,8 @@ final class NotchService: ObservableObject {
         return max(reading, marks) + NotchAgentSupport.stripCameraGap
     }
 
-    var musicShowsVolume: Bool { NotchSupport.showsMusicVolume() }
+    /// A Home Assistant player always shows its own volume row.
+    var musicShowsVolume: Bool { NotchSupport.showsMusicVolume() || HomeAssistantMusic.shared.active != nil }
 
     var expandedSize: CGSize {
         if showingSections {
@@ -887,7 +888,7 @@ final class NotchService: ObservableObject {
         let shortcuts = controls.filter { !$0.isLevel && $0 != .music }.count
         return geometry.expandedSize(module: module, detail: detail, panel: panel, detailHeight: detailHeight,
                                      shortcutCount: shortcuts,
-                                     sliderCount: sliders, controlsHaveMusic: controls.contains(.music), musicHasContent: NotchMusicService.shared.playback != nil,
+                                     sliderCount: sliders, controlsHaveMusic: controls.contains(.music), musicHasContent: NotchMusicService.shared.playback != nil || HomeAssistantMusic.shared.active != nil,
                                      musicShowsVolume: musicShowsVolume,
                                      musicExtraHeight: musicExtraHeight, fileMediaHeight: fileMediaHeight,
                                      systemCards: NotchSupport.systemCardCount(hasBattery: PowerSampler.hasInternalBattery,
@@ -4208,6 +4209,15 @@ final class NotchService: ObservableObject {
                     self?.objectWillChange.send()
                     self?.refreshPresentation()
                 }.store(in: &subscriptions)
+            // A Home Assistant player takes the page with its timeline and volume row.
+            if modules.contains(.homeAssistant) {
+                HomeAssistantMusic.shared.$active.map { $0 != nil }.removeDuplicates()
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self] _ in
+                        self?.objectWillChange.send()
+                        self?.refreshPresentation()
+                    }.store(in: &subscriptions)
+            }
             // A strip naming its song fits the next song's name in place, or
             // its cover and bars when the next reading names nothing.
             music.$playback.map { [$0?.track.title, $0?.track.artist] }.removeDuplicates()

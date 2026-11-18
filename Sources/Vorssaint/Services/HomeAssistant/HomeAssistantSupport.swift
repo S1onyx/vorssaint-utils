@@ -372,7 +372,7 @@ struct HomeAssistantAction: Equatable, Sendable {
 
     static func make(_ service: String, entity: HomeAssistantEntity,
                      data: [String: HomeAssistantValue] = [:]) throws -> Self {
-        guard entity.eligible, entity.available else { throw HomeAssistantFailure.unsupported }
+        guard entity.eligible || entity.domain == "media_player", entity.available else { throw HomeAssistantFailure.unsupported }
         let allowed: Bool
         var expected: [String: HomeAssistantValue] = [:]
         switch (entity.domain, service) {
@@ -405,6 +405,9 @@ struct HomeAssistantAction: Equatable, Sendable {
                 allowed = entity.supports(1) && data.count == 1 && data["temperature"]?.number.map { range.contains($0) } == true
             }
             expected = data
+        case ("media_player", _):
+            // Playback commands are acknowledged; the player's own state events follow.
+            allowed = HomeAssistantMediaPlayer(entity)?.allows(service, data: data) == true
         default: allowed = false
         }
         guard allowed else { throw HomeAssistantFailure.unsupported }
@@ -444,5 +447,100 @@ struct HomeAssistantStateStore {
         guard let data = try? JSONEncoder().encode(value),
               let entity = try? JSONDecoder().decode(HomeAssistantEntity.self, from: data), entity.id == id else { return }
         entities[id] = entity
+    }
+}
+
+/// A `media_player` entity read as a music source: what plays, where it is,
+/// and which commands the player advertises in `supported_features`.
+struct HomeAssistantMediaPlayer: Equatable, Identifiable {
+    enum Feature: Int {
+        case pause = 1, seek = 2, volumeSet = 4, volumeMute = 8, previous = 16, next = 32
+        case selectSource = 2048, play = 16384, grouping = 524288
+    }
+    let entity: HomeAssistantEntity
+
+    init?(_ entity: HomeAssistantEntity) {
+        guard entity.domain == "media_player" else { return nil }
+        self.entity = entity
+    }
+
+    var id: String { entity.id }
+    var name: String { entity.name }
+    func supports(_ feature: Feature) -> Bool { entity.supports(feature.rawValue) }
+    var isPlaying: Bool { entity.state == "playing" }
+    /// Off, standby and unavailable players have nothing to show or control.
+    var isActive: Bool { entity.available && !["off", "standby"].contains(entity.state) }
+    var hasMedia: Bool { title != nil }
+    private func text(_ key: String) -> String? {
+        entity.attributes[key]?.string.flatMap { $0.isEmpty ? nil : $0 }
+    }
+    var title: String? { text("media_title") }
+    var artist: String? { text("media_artist") ?? text("media_album_artist") ?? text("media_series_title") }
+    var album: String? { text("media_album_name") }
+    var appName: String? { text("app_name") }
+    var duration: TimeInterval { max(0, entity.attributes["media_duration"]?.number ?? 0) }
+    var volume: Double? { entity.attributes["volume_level"]?.number.map { min(1, max(0, $0)) } }
+    var muted: Bool {
+        if case .bool(let value) = entity.attributes["is_volume_muted"] { return value }
+        return false
+    }
+    var source: String? { text("source") }
+    var sources: [String] { entity.attributes["source_list"]?.array?.compactMap(\.string) ?? [] }
+    /// The player itself leads the list when it is grouped.
+    var groupMembers: [String] { entity.attributes["group_members"]?.array?.compactMap(\.string) ?? [] }
+    var isGrouped: Bool { groupMembers.filter { $0 != id }.count > 0 }
+
+    /// The position the player reported, advanced by the time since it said so while playing.
+    func position(at date: Date) -> TimeInterval {
+        let reported = entity.attributes["media_position"]?.number ?? 0
+        guard isPlaying, let stamp = text("media_position_updated_at"),
+              let updated = Self.date(stamp) else { return min(max(0, reported), duration) }
+        let elapsed = reported + max(0, date.timeIntervalSince(updated))
+        return duration > 0 ? min(elapsed, duration) : elapsed
+    }
+    private static func date(_ text: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    }
+
+    /// Cover art: Home Assistant's proxy path carries its own access token, so
+    /// it resolves against the server; Music Assistant may send a full URL.
+    func pictureURL(base: URL?) -> URL? {
+        guard let path = text("entity_picture") else { return nil }
+        if path.hasPrefix("/") { return base.flatMap { URL(string: path, relativeTo: $0)?.absoluteURL } }
+        guard let url = URL(string: path), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
+    }
+
+    func allows(_ service: String, data: [String: HomeAssistantValue]) -> Bool {
+        switch service {
+        case "media_play_pause": return data.isEmpty && (supports(.pause) || supports(.play))
+        case "media_next_track": return data.isEmpty && supports(.next)
+        case "media_previous_track": return data.isEmpty && supports(.previous)
+        case "media_seek":
+            return supports(.seek) && data.count == 1
+                && data["seek_position"]?.number.map { $0 >= 0 && (duration == 0 || $0 <= duration) } == true
+        case "volume_set":
+            return supports(.volumeSet) && data.count == 1 && data["volume_level"]?.number.map { (0...1).contains($0) } == true
+        case "volume_mute":
+            guard supports(.volumeMute), data.count == 1, case .bool = data["is_volume_muted"] else { return false }
+            return true
+        case "select_source":
+            return supports(.selectSource) && data.count == 1 && data["source"]?.string.map(sources.contains) == true
+        case "join":
+            guard supports(.grouping), data.count == 1, let members = data["group_members"]?.array, !members.isEmpty
+            else { return false }
+            return members.allSatisfy { $0.string.map { $0.hasPrefix("media_player.") && $0 != id } == true }
+        case "unjoin": return data.isEmpty && supports(.grouping)
+        default: return false
+        }
+    }
+    /// A chosen player wins while Home Assistant knows it; otherwise a playing
+    /// player fills in only while this Mac is silent.
+    static func choose(selection: String?, players: [Self], macPlaying: Bool) -> Self? {
+        if let selection { return players.first { $0.id == selection && $0.entity.available } }
+        guard !macPlaying else { return nil }
+        return players.filter { $0.isPlaying && $0.hasMedia }.min { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 }

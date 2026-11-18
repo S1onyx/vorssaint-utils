@@ -675,7 +675,7 @@ enum NotchTests {
                      "every fallback of the row's trailing side ends a wrapping page's controls with the sections button")
         let player = source("Sources/Vorssaint/UI/Notch/NotchMusicView.swift")
         let corners = player.components(separatedBy: "} corner: {").dropFirst().map { $0.components(separatedBy: "}").first ?? "" }
-        let cornersShowIt = corners.count == 2 && corners.allSatisfy { $0.contains("sectionsButton") }
+        let cornersShowIt = corners.count == 3 && corners.allSatisfy { $0.contains("sectionsButton") }
         let rowItems = (player.components(separatedBy: ".notchBand(trailing: {").dropFirst().first ?? "")
             .components(separatedBy: "})").first ?? ""
         suite.expect(player.contains("if band.pageSectionsButton { NotchSectionsButton(action: NotchService.shared.toggleSections) }")

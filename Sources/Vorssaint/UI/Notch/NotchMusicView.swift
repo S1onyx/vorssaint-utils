@@ -11,6 +11,7 @@ struct NotchMusicView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var features = FeatureRuntime.shared
     @ObservedObject private var shuffle = NotchShuffleService.shared
+    @ObservedObject private var home = HomeAssistantMusic.shared
     @AppStorage(DefaultsKey.notchLyricsEnabled) private var lyricsEnabled = true
     @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = true
     @AppStorage(DefaultsKey.notchMusicShowVolume) private var showVolume = false
@@ -27,7 +28,8 @@ struct NotchMusicView: View {
     private var showsQueue: Bool { queueEnabled && AppFeature.notchQueue.isAvailable }
     private var showsVolume: Bool { showVolume && AppFeature.mixer.isAvailable }
     private var openExtra: MusicExtra? {
-        guard service.playback != nil else { return nil }
+        // Lyrics and the queue follow this Mac's song, not a Home Assistant player.
+        guard service.playback != nil, home.active == nil else { return nil }
         switch extra {
         case .lyrics: return showsLyrics ? .lyrics : nil
         case .queue: return showsQueue ? .queue : nil
@@ -46,7 +48,8 @@ struct NotchMusicView: View {
         let geometry = NotchService.shared.geometry
         let split = NotchLayout.musicSplit(
             height: size.height, extras: extrasHeight,
-            resting: NotchLayout.musicPlayerHeight(band: bandHeight, playing: service.playback != nil, showVolume: showsVolume),
+            resting: NotchLayout.musicPlayerHeight(band: bandHeight, playing: service.playback != nil || home.active != nil,
+                                                   showVolume: showsVolume || home.active != nil),
             keepsPlayer: !preview && geometry.layout != .custom, extraOpen: openExtra != nil)
         // With the player gone the list starts below the camera's row, which
         // keeps its toggles; without that row they come back in one of their
@@ -55,7 +58,15 @@ struct NotchMusicView: View {
             : band.besideCamera ? bandHeight + NotchLayout.spacing : 28 + NotchLayout.rowSpacing
         VStack(spacing: NotchLayout.rowSpacing) {
             if split.showsPlayer {
-                if let playback = service.playback {
+                if let homePlayer = home.active {
+                    NotchHomeAssistantMusicView(player: homePlayer, width: size.width, bandHeight: bandHeight,
+                                                showsCorner: !band.besideCamera && band.pageSectionsButton) {
+                        sourceMenu(nil)
+                        if band.besideCamera { sectionsButton }
+                    } corner: {
+                        sectionsButton
+                    }
+                } else if let playback = service.playback {
                     player(playback)
                 } else if !service.awaitingPlayback {
                     idle
@@ -84,11 +95,12 @@ struct NotchMusicView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Beside the camera the row holds the song's extras, across from the cover.
         .notchBand(trailing: {
-            if band.besideCamera, service.playback != nil { extraButtons }
+            if band.besideCamera, service.playback != nil, home.active == nil { extraButtons }
         })
         .onAppear {
             // A preview in Settings leaves the island's size and extras alone.
             guard !preview else { return }
+            home.setVisible(true)
             syncExtras()
             service.refreshAutomation()
             shuffle.refresh(for: service.playback)
@@ -108,6 +120,7 @@ struct NotchMusicView: View {
         .onChange(of: queueEnabled) { syncExtras() }
         .onDisappear {
             guard !preview else { return }
+            home.setVisible(false)
             NotchService.shared.setMusicDetailsVisible(false)
             NotchService.shared.setPageLayer(.music, close: nil)
             NotchLyricsService.shared.hide()
@@ -170,7 +183,7 @@ struct NotchMusicView: View {
                 .accessibilityLabel(opens ? openTitle : text.mediaNothingPlaying)
             } titles: {
                 VStack(alignment: .leading, spacing: 2) {
-                    if !service.sources.isEmpty || !service.sourceIsAutomatic {
+                    if !service.sources.isEmpty || !service.sourceIsAutomatic || !home.players.isEmpty {
                         sourcePicker(nil)
                     } else {
                         Text(text.mediaNothingPlaying).font(.system(size: 14, weight: .semibold)).lineLimit(1)
@@ -289,7 +302,7 @@ struct NotchMusicView: View {
                 }
             } accessory: {
                 // Which player the buttons drive, by its icon, when there is a choice.
-                if service.sources.count > 1 || !service.sourceIsAutomatic {
+                if service.sources.count > 1 || !service.sourceIsAutomatic || !home.players.isEmpty {
                     sourceMenu(playback)
                 }
                 // Quiet beside the song, as the timeline's times are. The
@@ -316,23 +329,34 @@ struct NotchMusicView: View {
     }
 
     /// The player the buttons drive, as its icon, opening the same choice.
-    private func sourceMenu(_ playback: NotchPlayback) -> some View {
+    /// Nil while a Home Assistant player has the page.
+    private func sourceMenu(_ playback: NotchPlayback?) -> some View {
         let extras = FeatureStrings.notchMusicExtras(l10n.language)
-        let current = service.sources.first { $0.pid == playback.track.appPID }
-        let app = playback.track.appPID.map { NotchPlayerApps.app(pid: $0, bundle: playback.track.appBundleIdentifier) }
-        let name = current?.displayName ?? app?.name ?? playback.track.appBundleIdentifier ?? extras.playbackSource
-        let icon = app?.icon
-        var items = [NotchMenuItem(title: extras.automaticSource, checked: service.sourceIsAutomatic) { service.selectSource(nil) },
-                     .separator]
+        let current = playback.flatMap { playback in service.sources.first { $0.pid == playback.track.appPID } }
+        let app = playback.flatMap { playback in
+            playback.track.appPID.map { NotchPlayerApps.app(pid: $0, bundle: playback.track.appBundleIdentifier) }
+        }
+        let name = home.active?.name ?? current?.displayName ?? app?.name ?? playback?.track.appBundleIdentifier
+            ?? extras.playbackSource
+        let icon = home.active == nil ? app?.icon : nil
+        let automatic = service.sourceIsAutomatic && home.selection == nil
+        var items = [NotchMenuItem(title: extras.automaticSource, checked: automatic) {
+                         home.select(nil); service.selectSource(nil)
+                     }, .separator]
         items += service.sources.map { source in
             let title = source.displayName ?? NotchPlayerApps.app(pid: source.pid, bundle: source.bundleIdentifier).name
                 ?? source.bundleIdentifier
             // The chosen row, even while the automatic player fills its gap.
-            return NotchMenuItem(title: title, checked: source.pid == service.selectedSourcePID) { service.selectSource(source.selection) }
+            return NotchMenuItem(title: title, checked: home.selection == nil && source.pid == service.selectedSourcePID) {
+                home.select(nil); service.selectSource(source.selection)
+            }
         }
+        items += homeItems
         return NotchMenuButton(title: extras.playbackSource, items: items, cornerRadius: 6) {
             Group {
-                if let icon {
+                if home.active != nil {
+                    Image(systemName: "hifispeaker.fill").font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
+                } else if let icon {
                     Image(nsImage: icon).resizable().interpolation(.high)
                 } else {
                     Image(systemName: "app").font(.system(size: 13)).foregroundStyle(.secondary)
@@ -343,7 +367,16 @@ struct NotchMusicView: View {
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .help("\(extras.playbackSource): \(name)")
-        .accessibilityValue([service.sourceIsAutomatic ? extras.automaticSource : nil, name].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue([automatic ? extras.automaticSource : nil, name].compactMap { $0 }.joined(separator: ", "))
+    }
+
+    /// Home Assistant's speakers after this Mac's players, playing ones marked.
+    private var homeItems: [NotchMenuItem] {
+        guard !home.players.isEmpty else { return [] }
+        return [.separator] + home.players.map { player in
+            NotchMenuItem(title: player.name, checked: home.selection == player.id,
+                          symbol: player.isPlaying ? "waveform" : "hifispeaker") { home.select(player.id) }
+        }
     }
 
     private func sourcePicker(_ playback: NotchPlayback?) -> some View {
@@ -353,18 +386,27 @@ struct NotchMusicView: View {
             ?? pid.flatMap { RadialNowPlayingApplication.playerApplication(bundleIdentifier: nil, pid: $0)?.localizedName }
             ?? playback?.track.appBundleIdentifier ?? extras.playbackSource
         return Menu {
-            Button { service.selectSource(nil) } label: {
-                if service.sourceIsAutomatic { Label(extras.automaticSource, systemImage: "checkmark") }
+            Button { home.select(nil); service.selectSource(nil) } label: {
+                if service.sourceIsAutomatic && home.selection == nil { Label(extras.automaticSource, systemImage: "checkmark") }
                 else { Text(extras.automaticSource) }
             }
             Divider()
             ForEach(service.sources, id: \.pid) { source in
                 let title = source.displayName ?? NSRunningApplication(processIdentifier: source.pid)?.localizedName ?? source.bundleIdentifier
-                Button { service.selectSource(source.selection) } label: {
+                Button { home.select(nil); service.selectSource(source.selection) } label: {
                     // The chosen row, even while the automatic player fills its gap.
                     if source.pid == service.selectedSourcePID {
                         Label(title, systemImage: "checkmark")
                     } else { Text(title) }
+                }
+            }
+            if !home.players.isEmpty {
+                Divider()
+                ForEach(home.players) { player in
+                    Button { home.select(player.id) } label: {
+                        Label(player.name, systemImage: home.selection == player.id ? "checkmark"
+                              : player.isPlaying ? "waveform" : "hifispeaker")
+                    }
                 }
             }
         } label: {

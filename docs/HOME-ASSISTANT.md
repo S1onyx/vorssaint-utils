@@ -101,9 +101,30 @@ than assuming that the requested RGB is reproduced exactly within the lamp's gam
 Color-temperature-only and on/off-only lights do not offer this selector.
 Right-click a card and choose **Details** to open additional controls. Sensors,
 climate devices, and covers open their details when clicked. Cameras, locks, alarms,
-media players, and door/garage/gate covers are outside this version's scope.
+and door/garage/gate covers are outside this version's scope. Media players
+appear on the music page instead; see below.
 **Open dashboard** opens the server in your default browser, using that browser's
 own login session. The web dashboard is not embedded in the island.
+
+## Media players on the music page
+
+Home Assistant `media_player` entities, including Music Assistant players, are
+sources of the island's music page next to this Mac's players. Open the player's
+source menu (the app icon beside the bars, or the source name while nothing plays)
+and choose a speaker listed below this Mac's players. A playing speaker is marked
+with a waveform. **Automatic** shows a playing Home Assistant speaker only while
+nothing plays on this Mac; a chosen speaker stays shown while paused until you
+choose Automatic or a Mac player again.
+
+The page shows the cover (with a small house badge), title, artist and the speaker's
+name with the size of its group, a timeline that seeks when the player supports it,
+previous/play-pause/next, and a volume row with mute. The button left of the
+transport selects the player's input (`select_source`); the button on the right
+groups speakers (`media_player.join`/`unjoin`): checked speakers play together,
+choose one again to remove it. Only commands the player advertises in
+`supported_features` are offered. Lyrics, queue and shuffle stay with this Mac's
+playback. The music page keeps the Home Assistant connection open while it shows,
+which requires the Home Assistant section to be enabled.
 
 ## Connection and privacy
 

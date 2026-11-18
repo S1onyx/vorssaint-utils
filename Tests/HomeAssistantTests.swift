@@ -9,6 +9,7 @@ enum HomeAssistantTests {
         modelContracts(suite)
         colorContracts(suite)
         pageContracts(suite)
+        mediaPlayerContracts(suite)
         let finished = Completion()
         let task = Task { @MainActor in
             await clientContracts(suite)
@@ -26,6 +27,48 @@ enum HomeAssistantTests {
         var done: Bool { lock.withLock { value } }
         func finish() { lock.withLock { value = true } }
     }
+    static func mediaPlayerContracts(_ suite: TestSuite) {
+        // pause | seek | volume set | mute | previous | next | select source | grouping
+        let features = 1 | 2 | 4 | 8 | 16 | 32 | 2048 | 524_288
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let stamp = ISO8601DateFormatter().string(from: now.addingTimeInterval(-10))
+        let kitchen = entity("media_player.kitchen", state: "playing", attributes: [
+            "friendly_name": .string("Kitchen"), "supported_features": .number(Double(features)),
+            "media_title": .string("Song"), "media_artist": .string("Band"), "media_duration": .number(200),
+            "media_position": .number(30), "media_position_updated_at": .string(stamp),
+            "volume_level": .number(0.4), "is_volume_muted": .bool(true),
+            "source_list": .array([.string("Line-in"), .string("Radio")]),
+            "group_members": .array([.string("media_player.kitchen"), .string("media_player.bath")]),
+            "entity_picture": .string("/api/media_player_proxy/media_player.kitchen?token=x")])
+        guard let player = HomeAssistantMediaPlayer(kitchen) else { suite.expect(false, "media player decodes"); return }
+        suite.expect(HomeAssistantMediaPlayer(entity()) == nil, "only media_player entities are music sources")
+        suite.expect(abs(player.position(at: now) - 40) < 0.01, "playing position advances from its report")
+        suite.expect(player.muted && player.volume == 0.4 && player.isGrouped, "volume, mute and group are read")
+        suite.expect(player.pictureURL(base: URL(string: "http://ha.local:8123"))?.absoluteString
+                     == "http://ha.local:8123/api/media_player_proxy/media_player.kitchen?token=x", "proxy cover resolves against server")
+        suite.expect((try? HomeAssistantAction.make("media_play_pause", entity: kitchen)) != nil, "play/pause allowed")
+        suite.expect((try? HomeAssistantAction.make("volume_set", entity: kitchen, data: ["volume_level": .number(0.5)])) != nil,
+                     "volume within 0...1 allowed")
+        suite.expect((try? HomeAssistantAction.make("volume_set", entity: kitchen, data: ["volume_level": .number(2)])) == nil,
+                     "volume above 1 rejected")
+        suite.expect((try? HomeAssistantAction.make("select_source", entity: kitchen, data: ["source": .string("TV")])) == nil,
+                     "unknown input rejected")
+        suite.expect((try? HomeAssistantAction.make("join", entity: kitchen,
+                                                    data: ["group_members": .array([.string("light.desk")])])) == nil,
+                     "only media players can join")
+        suite.expect((try? HomeAssistantAction.make("media_seek", entity: kitchen, data: ["seek_position": .number(500)])) == nil,
+                     "seek past the end rejected")
+        let bare = entity("media_player.radio", state: "playing", attributes: ["media_title": .string("News")])
+        suite.expect((try? HomeAssistantAction.make("media_next_track", entity: bare)) == nil, "unadvertised command rejected")
+        let players = [player, HomeAssistantMediaPlayer(bare)!]
+        suite.expect(HomeAssistantMediaPlayer.choose(selection: nil, players: players, macPlaying: true) == nil,
+                     "this Mac's playback wins in automatic mode")
+        suite.expect(HomeAssistantMediaPlayer.choose(selection: nil, players: players, macPlaying: false)?.id == "media_player.kitchen",
+                     "a playing Home Assistant player fills a silent Mac")
+        suite.expect(HomeAssistantMediaPlayer.choose(selection: "media_player.radio", players: players, macPlaying: true)?.id
+                     == "media_player.radio", "a chosen player stays shown")
+    }
+
     static func entity(_ id: String = "light.desk", state: String = "off",
                        attributes: [String: HomeAssistantValue] = [:]) -> HomeAssistantEntity {
         HomeAssistantEntity(entityID: id, state: state, attributes: attributes)
