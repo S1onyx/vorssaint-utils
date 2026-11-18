@@ -118,13 +118,21 @@ choose Automatic or a Mac player again.
 
 The page shows the cover (with a small house badge), title, artist and the speaker's
 name with the size of its group, a timeline that seeks when the player supports it,
-previous/play-pause/next, and a volume row with mute. The button left of the
-transport selects the player's input (`select_source`); the button on the right
-groups speakers (`media_player.join`/`unjoin`): checked speakers play together,
-choose one again to remove it. Only commands the player advertises in
-`supported_features` are offered. Lyrics, queue and shuffle stay with this Mac's
-playback. The music page keeps the Home Assistant connection open while it shows,
-which requires the Home Assistant section to be enabled.
+and shuffle, previous/play-pause/next and repeat (off → all → one). The volume row
+holds mute, the level, the player's input (`select_source`) and speaker grouping
+(`media_player.join`/`unjoin`): checked speakers play together, choose one again to
+remove it. Only commands the player advertises in `supported_features` are offered.
+
+The list button beside the bars shows the queue of a Music Assistant player through
+`music_assistant.get_queue`: the current and the next entry, with **Skip**. Home
+Assistant returns no further entries, and other players have no queue to show.
+
+The collapsed island follows the speaker as it follows this Mac's players: cover and
+bars, the song's name on hover, play/pause from the bars, swipe to skip and the
+track notice. Lyrics stay with this Mac's playback.
+
+While Home Assistant is enabled, its connection stays open in the background so the
+collapsed island can follow a speaker; it still stops while the Mac sleeps.
 
 ## Connection and privacy
 
@@ -133,8 +141,8 @@ without periodic polling. Actual measurement cadence depends on the device and
 its integration; the app does not force hardware updates. A fresh snapshot is
 loaded when connecting or reconnecting.
 
-The connection runs while Home Assistant or its settings are visible. Closing the last
-surface, disabling the feature, or sleeping the Mac stops network work. On the
+The connection runs while Home Assistant is enabled, for the music surfaces described
+above. Disabling the feature or sleeping the Mac stops network work. On the
 next opening, the app loads fresh states. Offline readings are explicitly marked;
 controls require a live connection and an available entity.
 

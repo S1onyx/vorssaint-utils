@@ -100,7 +100,6 @@ struct NotchMusicView: View {
         .onAppear {
             // A preview in Settings leaves the island's size and extras alone.
             guard !preview else { return }
-            home.setVisible(true)
             syncExtras()
             service.refreshAutomation()
             shuffle.refresh(for: service.playback)
@@ -120,7 +119,6 @@ struct NotchMusicView: View {
         .onChange(of: queueEnabled) { syncExtras() }
         .onDisappear {
             guard !preview else { return }
-            home.setVisible(false)
             NotchService.shared.setMusicDetailsVisible(false)
             NotchService.shared.setPageLayer(.music, close: nil)
             NotchLyricsService.shared.hide()

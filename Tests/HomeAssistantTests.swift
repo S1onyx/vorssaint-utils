@@ -67,6 +67,28 @@ enum HomeAssistantTests {
                      "a playing Home Assistant player fills a silent Mac")
         suite.expect(HomeAssistantMediaPlayer.choose(selection: "media_player.radio", players: players, macPlaying: true)?.id
                      == "media_player.radio", "a chosen player stays shown")
+
+        let mass = entity("media_player.office", state: "playing", attributes: [
+            "supported_features": .number(Double(32768 | 262_144)), "shuffle": .bool(true), "repeat": .string("all"),
+            "mass_player_type": .string("player")])
+        let office = HomeAssistantMediaPlayer(mass)!
+        suite.expect(office.shuffle && office.repeatMode == "all" && office.nextRepeatMode == "one" && office.isMusicAssistant,
+                     "shuffle, repeat and Music Assistant are read")
+        suite.expect((try? HomeAssistantAction.make("repeat_set", entity: mass, data: ["repeat": .string("one")])) != nil
+                     && (try? HomeAssistantAction.make("repeat_set", entity: mass, data: ["repeat": .string("forever")])) == nil
+                     && (try? HomeAssistantAction.make("shuffle_set", entity: mass, data: ["shuffle": .bool(false)])) != nil,
+                     "shuffle and repeat commands are validated")
+        let response: HomeAssistantValue = .object(["media_player.office": .object([
+            "current_item": .object(["name": .string("A - B"), "duration": .number(180), "media_item": .object([
+                "name": .string("B"), "artists": .array([.object(["name": .string("A")])]),
+                "image": .string("https://img.example/b.jpg")])]),
+            "next_item": .object(["name": .string("C"), "image": .object(["path": .string("file:///x.jpg")])])])])
+        let queue = HomeAssistantQueueItem.upNext(response, entityID: "media_player.office")
+        suite.expect(queue.current?.title == "B" && queue.current?.artist == "A" && queue.current?.duration == 180
+                     && queue.current?.imageURL?.host == "img.example", "the current queue entry is read from its media item")
+        suite.expect(queue.next?.title == "C" && queue.next?.imageURL == nil, "a local image path is not loaded")
+        suite.expect(HomeAssistantQueueItem.upNext(.null, entityID: "media_player.office").current == nil,
+                     "a missing queue reads as empty")
     }
 
     static func entity(_ id: String = "light.desk", state: String = "off",

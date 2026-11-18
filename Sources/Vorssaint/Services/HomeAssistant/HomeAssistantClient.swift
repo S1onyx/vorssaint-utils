@@ -113,6 +113,15 @@ actor HomeAssistantClient {
 
     func perform(_ action: HomeAssistantAction) async throws { _ = try await request(action.message) }
 
+    /// A read-only action whose answer comes back as its response, such as
+    /// `music_assistant.get_queue`.
+    func response(domain: String, service: String, entityID: String) async throws -> HomeAssistantValue {
+        let result = try await request(["type": .string("call_service"), "domain": .string(domain),
+                                        "service": .string(service), "target": .object(["entity_id": .string(entityID)]),
+                                        "return_response": .bool(true)])
+        return result.object?["response"] ?? .null
+    }
+
     private func request(_ message: [String: HomeAssistantValue]) async throws -> HomeAssistantValue {
         guard !closed else { throw HomeAssistantFailure.network }
         let id = nextID; nextID += 1

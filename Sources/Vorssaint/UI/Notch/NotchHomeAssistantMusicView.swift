@@ -6,13 +6,19 @@ import SwiftUI
 /// The few words the Home Assistant player adds to the music page.
 // ponytail: English and German only, others fall back to English; move into HomeAssistantStrings for all languages if upstreamed.
 struct HomeAssistantMusicStrings {
-    let thisMac, group, leaveGroup, input, nothingPlaying: String
+    let group, leaveGroup, input, nothingPlaying, shuffle, repeatOff, repeatAll, repeatOne: String
+    let queue, nowPlaying, upNext, noQueue, skip: String
     static func localized(_ language: AppLanguage) -> Self {
         language == .de
-            ? Self(thisMac: "Dieser Mac", group: "Lautsprechergruppe", leaveGroup: "Gruppe auflösen",
-                   input: "Eingang", nothingPlaying: "Keine Wiedergabe")
-            : Self(thisMac: "This Mac", group: "Speaker group", leaveGroup: "Ungroup",
-                   input: "Input", nothingPlaying: "Nothing playing")
+            ? Self(group: "Lautsprechergruppe", leaveGroup: "Gruppe auflösen", input: "Eingang",
+                   nothingPlaying: "Keine Wiedergabe", shuffle: "Zufallswiedergabe", repeatOff: "Wiederholen: Aus",
+                   repeatAll: "Wiederholen: Alle", repeatOne: "Wiederholen: Titel", queue: "Warteschlange",
+                   nowPlaying: "Jetzt", upNext: "Als Nächstes",
+                   noQueue: "Keine Warteschlange. Nur Music-Assistant-Player liefern eine.", skip: "Überspringen")
+            : Self(group: "Speaker group", leaveGroup: "Ungroup", input: "Input", nothingPlaying: "Nothing playing",
+                   shuffle: "Shuffle", repeatOff: "Repeat: Off", repeatAll: "Repeat: All", repeatOne: "Repeat: One",
+                   queue: "Queue", nowPlaying: "Now", upNext: "Up next",
+                   noQueue: "No queue. Only Music Assistant players provide one.", skip: "Skip")
     }
 }
 
@@ -32,6 +38,7 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
     @State private var requestedPlaying: Bool?
     @State private var volumeDraft: Double?
     @State private var seekDraft: Double?
+    @State private var showingQueue = false
 
     private var text: RadialMenuFeatureStrings { FeatureStrings.radialMenu(l10n.language) }
     private var strings: HomeAssistantMusicStrings { .localized(l10n.language) }
@@ -80,6 +87,7 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
             VStack(alignment: .trailing, spacing: 0) {
                 if showsCorner { HStack(spacing: 6) { corner() }.frame(height: 28) }
                 HStack(spacing: 8) {
+                    queueButton
                     accessory()
                     NotchLiveEqualizerBars(isPlaying: player.isPlaying, bars: 4, barWidth: 2.5, height: 15,
                                            tint: .white.opacity(0.5))
@@ -169,11 +177,11 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
 
     // MARK: Transport
 
-    /// Five equal places as on this Mac's player: input, the transport, group.
+    /// Five equal places as on this Mac's player: shuffle, the transport, repeat.
     private var transport: some View {
         let slot = width / 5
         return HStack(spacing: 0) {
-            Color.clear.frame(width: slot).overlay { inputMenu }
+            Color.clear.frame(width: slot).overlay { shuffleButton }
             transportButton("backward.fill", title: text.mediaPrevious, size: 19, service: "media_previous_track",
                             offered: player.supports(.previous)).frame(width: slot)
             Button {
@@ -196,7 +204,91 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
             .frame(width: slot)
             transportButton("forward.fill", title: text.mediaNext, size: 19, service: "media_next_track",
                             offered: player.supports(.next)).frame(width: slot)
-            Color.clear.frame(width: slot).overlay { groupMenu }
+            Color.clear.frame(width: slot).overlay { repeatButton }
+        }
+    }
+
+    @ViewBuilder private var shuffleButton: some View {
+        if player.supports(.shuffle) {
+            Button { music.perform("shuffle_set", data: ["shuffle": .bool(!player.shuffle)]) } label: {
+                sideGlyph("shuffle", active: player.shuffle)
+            }
+            .buttonStyle(NotchButtonStyle(cornerRadius: 22))
+            .disabled(pending)
+            .help(strings.shuffle)
+            .accessibilityLabel(strings.shuffle)
+            .accessibilityAddTraits(player.shuffle ? .isSelected : [])
+        }
+    }
+
+    /// Steps off, all, one, as phones do.
+    @ViewBuilder private var repeatButton: some View {
+        if player.supports(.repeatMode) {
+            let title = player.repeatMode == "one" ? strings.repeatOne
+                : player.repeatMode == "all" ? strings.repeatAll : strings.repeatOff
+            Button { music.perform("repeat_set", data: ["repeat": .string(player.nextRepeatMode)]) } label: {
+                sideGlyph(player.repeatMode == "one" ? "repeat.1" : "repeat", active: player.repeatMode != "off")
+            }
+            .buttonStyle(NotchButtonStyle(cornerRadius: 22))
+            .disabled(pending)
+            .help(title)
+            .accessibilityLabel(title)
+        }
+    }
+
+    // MARK: Queue
+
+    /// Music Assistant's current and next entry. Home Assistant returns no more.
+    private var queueButton: some View {
+        NotchIconButton(symbol: "list.bullet", title: strings.queue, selected: showingQueue) {
+            showingQueue.toggle()
+            if showingQueue { music.loadQueue() }
+        }
+        .disabled(!music.connected)
+        .popover(isPresented: $showingQueue, arrowEdge: .bottom) { queuePanel }
+        .onChange(of: player.title) { if showingQueue { music.loadQueue() } }
+    }
+
+    private var queuePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let upNext = music.upNext, upNext.current != nil || upNext.next != nil {
+                if let current = upNext.current { queueRow(strings.nowPlaying, current) }
+                if let next = upNext.next {
+                    queueRow(strings.upNext, next)
+                    Button(strings.skip) { music.perform("media_next_track") }
+                        .disabled(pending || !player.supports(.next))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            } else if music.queueLoading {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+            } else {
+                Text(strings.noQueue).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(width: 260)
+    }
+
+    private func queueRow(_ label: String, _ item: HomeAssistantQueueItem) -> some View {
+        HStack(spacing: 10) {
+            AsyncImage(url: item.imageURL) { image in image.resizable().scaledToFill() } placeholder: {
+                Image(systemName: "music.note").foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).background(.quaternary)
+            }
+            .frame(width: 40, height: 40)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label.uppercased()).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+                Text(item.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                if let artist = item.artist {
+                    Text(artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            if item.duration > 0 {
+                Text(Self.timestamp(item.duration)).font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -227,6 +319,14 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
             .contentShape(Circle())
     }
 
+    private func rowGlyph(_ symbol: String, active: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(active ? accent : .white.opacity(0.7))
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+    }
+
     /// The player's own inputs, such as a speaker's line-in or a Music Assistant queue.
     @ViewBuilder private var inputMenu: some View {
         if player.supports(.selectSource), !player.sources.isEmpty {
@@ -235,8 +335,8 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
                     music.perform("select_source", data: ["source": .string(source)])
                 }
             }
-            NotchMenuButton(title: strings.input, items: items, cornerRadius: 22) {
-                sideGlyph("square.stack.3d.down.right", active: false)
+            NotchMenuButton(title: strings.input, items: items, cornerRadius: 6) {
+                rowGlyph("square.stack.3d.down.right", active: false)
             }
             .disabled(pending)
             .help([strings.input, player.source].compactMap { $0 }.joined(separator: ": "))
@@ -257,8 +357,8 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
             } + (player.isGrouped ? [.separator, NotchMenuItem(title: strings.leaveGroup, symbol: "rectangle.badge.minus") {
                 music.perform("unjoin")
             }] : [])
-            NotchMenuButton(title: strings.group, items: items, cornerRadius: 22) {
-                sideGlyph(player.isGrouped ? "hifispeaker.2.fill" : "hifispeaker.2", active: player.isGrouped)
+            NotchMenuButton(title: strings.group, items: items, cornerRadius: 6) {
+                rowGlyph(player.isGrouped ? "hifispeaker.2.fill" : "hifispeaker.2", active: player.isGrouped)
             }
             .disabled(pending || items.isEmpty)
             .help(strings.group)
@@ -299,6 +399,9 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
             } else {
                 Spacer(minLength: 0)
             }
+            // The speaker's choosers end its row, as the output does on this Mac's.
+            inputMenu
+            groupMenu
         }
         // The server's confirmed level replaces the dragged one.
         .onChange(of: player.volume) { volumeDraft = nil }

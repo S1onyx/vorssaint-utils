@@ -2341,6 +2341,7 @@ def main():
           + "return reader\n}\n}\n}\n")
     write("NotchMusicControls.swift", "import AppKit\n\nextension NotchMusicCommandContract {\n"
           + "final class Service {\ntypealias Command = NotchPlaybackCommand\n"
+          + "var homeCommand: ((Command) -> Bool)?\n"
           + "var playback: NotchPlayback?\nvar generation = UUID()\nvar queueRequest: UUID?\n"
           + "var sources: [NotchPlaybackSource] = []\nvar sourceIsAutomatic = true\n"
           + "var artwork: NSObject?\nvar artworkTint: NotchArtworkTint?\n"
@@ -2396,6 +2397,7 @@ def main():
           + "}\n}\n")
     write("NotchMusicAutomationBodies.swift", "import Foundation\n\nextension NotchMusicAutomationFlowContract {\n"
           + "final class Service {\ntypealias Command = NotchPlaybackCommand\nvar playback: NotchPlayback?\n"
+          + "var homeAllows: ((Command) -> Bool)?\n"
           + "var automationAvailability: NotchMusicAutomation.Availability?\nvar automationTarget: NotchMusicAutomation.Target?\n"
           + "var generation = UUID()\nvar commandPending = false\nvar commandFailed = false\nvar requestingAutomation = false\n"
           + "var automationCancellation = DispatchWorkItem {}\nvar automationConsentCancellation = DispatchWorkItem {}\n"

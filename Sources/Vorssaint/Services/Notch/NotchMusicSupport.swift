@@ -45,6 +45,10 @@ struct NotchPlayback: Equatable {
     var canSkipNext: Bool? = nil
     var canSkipPrevious: Bool? = nil
 
+    /// Playback of a Home Assistant speaker, shown in place of this Mac's.
+    static let homeAssistantPrefix = "io.home-assistant."
+    var isHomeAssistant: Bool { track.appBundleIdentifier?.hasPrefix(Self.homeAssistantPrefix) == true }
+
     /// The same recording from the same player. Readings without a name
     /// share no recording, so only their player tells them apart.
     static func sameRecording(_ first: NotchPlayback?, _ second: NotchPlayback?) -> Bool {

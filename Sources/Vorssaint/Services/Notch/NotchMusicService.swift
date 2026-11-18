@@ -91,6 +91,41 @@ final class NotchMusicService: ObservableObject {
 
     private init() {}
 
+    // MARK: Home Assistant
+
+    /// Commands for a Home Assistant speaker shown in place of this Mac's playback.
+    var homeCommand: ((Command) -> Bool)?
+    var homeAllows: ((Command) -> Bool)?
+    /// This Mac's own reading, kept while a Home Assistant speaker is shown.
+    private var homeSaved: (playback: NotchPlayback?, artwork: NSImage?, tint: NotchArtworkTint?)?
+    /// This Mac's own playback, also while a Home Assistant speaker is shown.
+    /// A reading from this Mac that just replaced the speaker is the newest one.
+    var macPlayback: NotchPlayback? { playback?.isHomeAssistant == true ? homeSaved?.playback : playback }
+
+    /// Shows a Home Assistant speaker on every music surface, the collapsed
+    /// island included; nil returns them to this Mac's playback. A reading from
+    /// this Mac that replaced the speaker is kept and the speaker shown again.
+    func showHome(_ next: NotchPlayback?, artwork image: NSImage?, tint: NotchArtworkTint?) {
+        guard let next else {
+            guard let saved = homeSaved else { return }
+            homeSaved = nil
+            if playback?.isHomeAssistant == true {
+                playback = saved.playback; artwork = saved.artwork; artworkTint = saved.tint
+            }
+            return
+        }
+        if playback?.isHomeAssistant != true {
+            homeSaved = (playback, artwork, artworkTint)
+            artworkWork?.cancel(); artworkWork = nil
+        } else if let current = playback, next.isPlaying,
+                  current.track.title != next.track.title || current.itemIdentifier != next.itemIdentifier {
+            trackChanges.send()
+        }
+        if next != playback { playback = next }
+        if artwork !== image { artwork = image }
+        if artworkTint != tint { artworkTint = tint }
+    }
+
     private static var adapter: [String]? {
         guard let script = Bundle.main.url(forResource: "now-playing", withExtension: "pl"),
               let library = Bundle.main.privateFrameworksURL?.appendingPathComponent("libVorssaintNowPlaying.dylib"),
@@ -550,6 +585,7 @@ final class NotchMusicService: ObservableObject {
 
     @discardableResult
     func send(_ command: Command, context: NotchPlaybackContext?) -> Bool {
+        if playback?.isHomeAssistant == true, let homeCommand { return homeCommand(command) }
         switch command {
         case .queue, .queuePlay: guard queueVisible, NotchQueueSupport.isEnabled() else { return false }
         default: break
@@ -585,12 +621,14 @@ final class NotchMusicService: ObservableObject {
     }
 
     var canSeek: Bool {
+        if playback?.isHomeAssistant == true { return homeAllows?(.seek(0)) ?? false }
         guard let playback, playback.hasPosition, playback.duration > 0 else { return false }
         return playback.canSendCommandsDirectly ? playback.canSeek
             : automationAvailability?.access == .granted && automationAvailability?.capabilities.position != nil
     }
 
     func canPerform(_ command: Command) -> Bool {
+        if playback?.isHomeAssistant == true { return homeAllows?(command) ?? false }
         guard let playback, playback.commandContext != nil, !commandPending else { return false }
         if case .seek = command { return canSeek }
         if playback.canSendCommandsDirectly { return !lacksTrackSkipping(command) }

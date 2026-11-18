@@ -458,6 +458,12 @@ final class HomeAssistantService: ObservableObject {
             }
         }
     }
+    /// Reads Music Assistant's queue for a player; nil when the server has no answer.
+    func musicAssistantQueue(_ entityID: String) async -> HomeAssistantValue? {
+        guard enabled, connection == .connected, let client, entities[entityID]?.domain == "media_player" else { return nil }
+        return try? await client.response(domain: "music_assistant", service: "get_queue", entityID: entityID)
+    }
+
     func perform(_ service: String, entityID: String, data: [String: HomeAssistantValue] = [:]) {
         guard enabled, connection == .connected, !pending.contains(entityID),
               let entity = entities[entityID], let client else { return }

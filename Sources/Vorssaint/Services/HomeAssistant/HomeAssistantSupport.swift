@@ -455,7 +455,7 @@ struct HomeAssistantStateStore {
 struct HomeAssistantMediaPlayer: Equatable, Identifiable {
     enum Feature: Int {
         case pause = 1, seek = 2, volumeSet = 4, volumeMute = 8, previous = 16, next = 32
-        case selectSource = 2048, play = 16384, grouping = 524288
+        case selectSource = 2048, play = 16384, shuffle = 32768, repeatMode = 262144, grouping = 524288
     }
     let entity: HomeAssistantEntity
 
@@ -484,6 +484,22 @@ struct HomeAssistantMediaPlayer: Equatable, Identifiable {
         if case .bool(let value) = entity.attributes["is_volume_muted"] { return value }
         return false
     }
+    var shuffle: Bool {
+        if case .bool(let value) = entity.attributes["shuffle"] { return value }
+        return false
+    }
+    /// off, all or one.
+    var repeatMode: String { text("repeat") ?? "off" }
+    static let repeatModes = ["off", "all", "one"]
+    var nextRepeatMode: String {
+        Self.repeatModes[((Self.repeatModes.firstIndex(of: repeatMode) ?? 0) + 1) % Self.repeatModes.count]
+    }
+    /// Music Assistant adds its own attributes; only its players have a queue to read.
+    var isMusicAssistant: Bool {
+        entity.attributes["mass_player_type"] != nil || entity.attributes["active_queue"] != nil
+            || entity.attributes["mass_player_id"] != nil
+    }
+    var updatedAt: Date? { text("media_position_updated_at").flatMap(Self.date) }
     var source: String? { text("source") }
     var sources: [String] { entity.attributes["source_list"]?.array?.compactMap(\.string) ?? [] }
     /// The player itself leads the list when it is grouped.
@@ -498,7 +514,7 @@ struct HomeAssistantMediaPlayer: Equatable, Identifiable {
         let elapsed = reported + max(0, date.timeIntervalSince(updated))
         return duration > 0 ? min(elapsed, duration) : elapsed
     }
-    private static func date(_ text: String) -> Date? {
+    static func date(_ text: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
@@ -533,6 +549,11 @@ struct HomeAssistantMediaPlayer: Equatable, Identifiable {
             else { return false }
             return members.allSatisfy { $0.string.map { $0.hasPrefix("media_player.") && $0 != id } == true }
         case "unjoin": return data.isEmpty && supports(.grouping)
+        case "shuffle_set":
+            guard supports(.shuffle), data.count == 1, case .bool = data["shuffle"] else { return false }
+            return true
+        case "repeat_set":
+            return supports(.repeatMode) && data.count == 1 && data["repeat"]?.string.map(Self.repeatModes.contains) == true
         default: return false
         }
     }
@@ -542,5 +563,34 @@ struct HomeAssistantMediaPlayer: Equatable, Identifiable {
         if let selection { return players.first { $0.id == selection && $0.entity.available } }
         guard !macPlaying else { return nil }
         return players.filter { $0.isPlaying && $0.hasMedia }.min { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+}
+
+/// One entry of a Music Assistant queue, read from `music_assistant.get_queue`.
+/// Home Assistant returns the current and the next entry only.
+struct HomeAssistantQueueItem: Equatable {
+    let title: String
+    let artist: String?
+    let imageURL: URL?
+    let duration: TimeInterval
+
+    init?(_ value: HomeAssistantValue?) {
+        guard let item = value?.object else { return nil }
+        let media = item["media_item"]?.object
+        guard let title = media?["name"]?.string ?? item["name"]?.string, !title.isEmpty else { return nil }
+        self.title = title
+        let artists = media?["artists"]?.array?.compactMap { $0.object?["name"]?.string ?? $0.string } ?? []
+        artist = artists.isEmpty ? nil : artists.joined(separator: ", ")
+        // The image is a URL, or an object holding one in `path` when the provider serves it remotely.
+        let image = media?["image"] ?? item["image"]
+        imageURL = (image?.string ?? image?.object?["path"]?.string)
+            .flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
+        duration = max(0, item["duration"]?.number ?? media?["duration"]?.number ?? 0)
+    }
+
+    /// The response is keyed by the player's entity ID.
+    static func upNext(_ response: HomeAssistantValue, entityID: String) -> (current: Self?, next: Self?) {
+        let queue = response.object?[entityID]?.object
+        return (Self(queue?["current_item"]), Self(queue?["next_item"]))
     }
 }
