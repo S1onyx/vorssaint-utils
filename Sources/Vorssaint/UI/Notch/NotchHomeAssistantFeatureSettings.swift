@@ -31,6 +31,31 @@ struct HomeAssistantFeatureSettings: View {
                 Text(text["showNotifications"])
             }
         }
+        SettingsCard {
+            heading(text["strip"], "thermometer.sun")
+            Text(text["stripHint"]).font(.caption).foregroundStyle(.secondary)
+            ForEach(0..<3, id: \.self) { index in glancePicker(index) }
+            Divider()
+            Toggle(isOn: $presence) { Text(text["presence"]) }
+            Text(text["presenceHint"]).font(.caption).foregroundStyle(.secondary)
+            Toggle(isOn: $commandBar) { Text(text["scenes"]) }
+            Text(text["scenesHint"]).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    @AppStorage(DefaultsKey.notchHomeAssistantPresence) private var presence = true
+    @AppStorage(DefaultsKey.notchHomeAssistantCommandBar) private var commandBar = true
+
+    private func glancePicker(_ index: Int) -> some View {
+        let ids = HomeAssistantGlance.ids()
+        let current = index < ids.count ? ids[index] : ""
+        let options = service.entities.values.filter(HomeAssistantGlance.accepts)
+            .sorted { service.displayName($0.id).localizedStandardCompare(service.displayName($1.id)) == .orderedAscending }
+        return Picker(selection: Binding(get: { current }, set: { HomeAssistantGlance.set($0, at: index); service.objectWillChange.send() })) {
+            Text(text["none"]).tag("")
+            if !current.isEmpty, !options.contains(where: { $0.id == current }) { Text(current).tag(current) }
+            ForEach(options) { Text(service.displayName($0.id)).tag($0.id) }
+        } label: { Text("\(index + 1).") }
     }
 
     func heading(_ title: String, _ symbol: String) -> some View {
@@ -54,10 +79,57 @@ struct HomeAssistantFeatureSettings: View {
 struct HomeAssistantHeaderExtras: View {
     @ObservedObject private var service = HomeAssistantService.shared
     @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.notchHomeAssistantPresence) private var presence = true
     @State private var showing = false
     private var text: HomeAssistantExtraStrings { .localized(l10n.language) }
 
     var body: some View {
+        HStack(spacing: 10) {
+            glance
+            if presence { people }
+            bell
+        }
+    }
+
+    /// The chosen readings: weather with its sky, a climate device's or a sensor's value.
+    private var glance: some View {
+        HStack(spacing: 8) {
+            ForEach(HomeAssistantGlance.ids(), id: \.self) { id in
+                if let entity = service.entities[id] {
+                    let item = HomeAssistantGlance.reading(entity, temperatureUnit: service.temperatureUnit)
+                    Label(item.value, systemImage: item.symbol)
+                        .font(.system(size: 11, weight: .medium)).monospacedDigit().lineLimit(1)
+                        .symbolRenderingMode(.multicolor)
+                        .help(service.displayName(id) + ": " + item.value)
+                }
+            }
+        }
+    }
+
+    /// Who is home, as initials: filled at home, outlined away.
+    private var people: some View {
+        let persons = service.entities.values.filter { $0.domain == "person" }.sorted { $0.name < $1.name }
+        return HStack(spacing: -4) {
+            ForEach(persons) { person in personBadge(person) }
+        }
+    }
+
+    private func personBadge(_ person: HomeAssistantEntity) -> some View {
+        let home = person.state == "home"
+        let where_: String = home ? text["home"] : (text.state(person.state) ?? person.state)
+        let fill: Color = home ? .green : .white.opacity(0.08)
+        let ink: Color = home ? .black : .secondary
+        return Text(String(person.name.prefix(1)).uppercased())
+            .font(.system(size: 9, weight: .bold))
+            .frame(width: 18, height: 18)
+            .foregroundStyle(ink)
+            .background(fill, in: Circle())
+            .overlay(Circle().stroke(Color.black, lineWidth: 1.5))
+            .help(person.name + ": " + where_)
+            .accessibilityLabel(person.name + ", " + (home ? text["home"] : text["away"]))
+    }
+
+    @ViewBuilder private var bell: some View {
         if !service.notifications.isEmpty {
             Button { showing.toggle() } label: {
                 Image(systemName: "bell.badge.fill").symbolRenderingMode(.multicolor)
@@ -96,3 +168,4 @@ struct HomeAssistantHeaderExtras: View {
         .frame(width: 300).frame(maxHeight: 340)
     }
 }
+

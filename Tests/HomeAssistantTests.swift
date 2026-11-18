@@ -135,6 +135,14 @@ enum HomeAssistantTests {
         let (removed, _) = HomeAssistantNotification.apply("removed", ["a": .null], to: added)
         suite.expect(current.count == 1 && none.isEmpty && added.count == 2 && fresh.map(\.id) == ["b"]
                      && removed.map(\.id) == ["b"], "notifications follow current, added and removed; only added ones alert")
+        let sky = HomeAssistantGlance.reading(entity("weather.home", state: "rainy", attributes: [
+            "temperature": .number(12.4), "temperature_unit": .string("°C")]), temperatureUnit: "°C")
+        let wet = HomeAssistantGlance.reading(entity("sensor.humidity", state: "55", attributes: [
+            "unit_of_measurement": .string("%"), "device_class": .string("humidity")]), temperatureUnit: "°C")
+        suite.expect(sky.symbol == "cloud.rain.fill" && sky.value.hasSuffix("°") && wet.value == "55%"
+                     && wet.symbol == "humidity.fill", "glance readings show the sky, the temperature and units")
+        suite.expect(!HomeAssistantGlance.accepts(entity("sensor.mode", state: "eco"))
+                     && HomeAssistantGlance.accepts(entity("climate.living")), "only measured sensors, weather and climate fit the glance")
     }
 
     static func entity(_ id: String = "light.desk", state: String = "off",

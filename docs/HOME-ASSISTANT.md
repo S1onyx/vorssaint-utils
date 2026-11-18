@@ -130,6 +130,19 @@ persistent notifications. A new one is posted as a macOS notification, which the
 island shows where notification mirroring is on. A bell with the count appears in
 the island's Home Assistant header; its list dismisses notifications on the server.
 
+## At a glance, people and the command bar
+
+Under **At a glance**, choose up to three weather, climate or measured sensor entities;
+the island's Home Assistant header shows them with an icon (the weather's sky,
+temperature, humidity, power). With **People at home** on, each `person` appears as
+an initial, filled green while home.
+
+With **Shortcuts** on, the command bar lists scenes, scripts, lights, switches and
+covers. Return runs a scene or script, or toggles; a number sets a light's brightness
+or a cover's position (for example `Kitchen 40`). Rows take their own keyboard
+shortcut like any command-bar row. Locks and alarms are left out, since they ask
+before acting.
+
 ## Media players on the music page
 
 Home Assistant `media_player` entities, including Music Assistant players, are

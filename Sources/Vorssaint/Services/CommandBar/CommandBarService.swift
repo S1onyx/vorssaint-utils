@@ -1339,6 +1339,7 @@ final class CommandBarService: ObservableObject {
 
     private func rebuildCatalog(index: Bool = true) {
         catalog = CommandBarCatalog.build(automationDenied: finderAutomationDenied)
+            + CommandBarCatalog.homeAssistantEntries()
         // The emoji rows are most of the pool and depend on nothing the
         // catalog's other rebuild triggers touch, so they are kept until one
         // of their own inputs moves. Assigning them again would also drop

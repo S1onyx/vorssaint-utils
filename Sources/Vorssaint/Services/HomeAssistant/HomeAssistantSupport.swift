@@ -696,3 +696,59 @@ struct HomeAssistantNotification: Equatable, Identifiable {
         return (byID.values.sorted { $0.created > $1.created }, added)
     }
 }
+
+/// Up to three readings shown in the island's Home Assistant header.
+enum HomeAssistantGlance {
+    static func ids(in defaults: UserDefaults = .standard) -> [String] {
+        (defaults.stringArray(forKey: DefaultsKey.notchHomeAssistantGlance) ?? []).filter { !$0.isEmpty }.prefix(3).map { $0 }
+    }
+    static func set(_ id: String, at index: Int, in defaults: UserDefaults = .standard) {
+        var ids = (defaults.stringArray(forKey: DefaultsKey.notchHomeAssistantGlance) ?? []) + Array(repeating: "", count: 3)
+        ids = Array(ids.prefix(3))
+        ids[index] = id
+        defaults.set(ids, forKey: DefaultsKey.notchHomeAssistantGlance)
+    }
+    static func accepts(_ entity: HomeAssistantEntity) -> Bool {
+        ["weather", "climate"].contains(entity.domain)
+            || (entity.domain == "sensor" && entity.attributes["unit_of_measurement"] != nil)
+    }
+    static func reading(_ entity: HomeAssistantEntity, temperatureUnit: String) -> (symbol: String, value: String) {
+        func number(_ value: Double?, _ unit: String) -> String {
+            value.map { $0.formatted(.number.precision(.fractionLength(0...1))) + unit } ?? "–"
+        }
+        switch entity.domain {
+        case "weather":
+            let unit = entity.attributes["temperature_unit"]?.string ?? temperatureUnit
+            return (symbol(weather: entity.state), number(entity.attributes["temperature"]?.number, unit.hasPrefix("°") ? "°" : " " + unit))
+        case "climate":
+            return ("thermometer.medium", number(entity.attributes["current_temperature"]?.number, "°"))
+        default:
+            let unit = entity.attributes["unit_of_measurement"]?.string ?? ""
+            let symbol = switch entity.attributes["device_class"]?.string {
+            case "temperature": "thermometer.medium"
+            case "humidity": "humidity.fill"
+            case "power", "energy": "bolt.fill"
+            default: "gauge.with.dots.needle.50percent"
+            }
+            return (symbol, number(Double(entity.state), unit.hasPrefix("°") || unit == "%" ? unit : " " + unit))
+        }
+    }
+    static func symbol(weather condition: String) -> String {
+        switch condition {
+        case "sunny": return "sun.max.fill"
+        case "clear-night": return "moon.stars.fill"
+        case "partlycloudy": return "cloud.sun.fill"
+        case "cloudy": return "cloud.fill"
+        case "rainy": return "cloud.rain.fill"
+        case "pouring": return "cloud.heavyrain.fill"
+        case "snowy": return "cloud.snow.fill"
+        case "snowy-rainy": return "cloud.sleet.fill"
+        case "fog": return "cloud.fog.fill"
+        case "hail": return "cloud.hail.fill"
+        case "lightning": return "cloud.bolt.fill"
+        case "lightning-rainy": return "cloud.bolt.rain.fill"
+        case "windy", "windy-variant": return "wind"
+        default: return "cloud.sun.fill"
+        }
+    }
+}
