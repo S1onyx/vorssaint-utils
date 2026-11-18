@@ -245,6 +245,10 @@ final class HomeAssistantService: ObservableObject {
         defaults.set([String: String](), forKey: DefaultsKey.notchHomeAssistantNames)
     }
     func setBrightness(_ percent: Double, entityID: String) {
+        if let entity = entities[entityID], entity.hasPosition {
+            perform("set_cover_position", entityID: entityID, data: ["position": .number(percent.rounded())])
+            return
+        }
         guard let entity = entities[entityID], let action = try? HomeAssistantAction.brightness(percent, entity: entity) else { return }
         perform(action.service, entityID: entityID, data: action.data)
     }
@@ -440,7 +444,7 @@ final class HomeAssistantService: ObservableObject {
         task?.cancel(); task = nil
         refreshTask?.cancel(); refreshTask = nil
         if let client { Task { await client.close() } }
-        client = nil; activeServer = nil
+        client = nil; activeServer = nil; musicAssistantEntry = nil
         clearCommands()
         connection = server.isEmpty ? .unconfigured : .offline
     }
@@ -461,7 +465,31 @@ final class HomeAssistantService: ObservableObject {
     /// Reads Music Assistant's queue for a player; nil when the server has no answer.
     func musicAssistantQueue(_ entityID: String) async -> HomeAssistantValue? {
         guard enabled, connection == .connected, let client, entities[entityID]?.domain == "media_player" else { return nil }
-        return try? await client.response(domain: "music_assistant", service: "get_queue", entityID: entityID)
+        return try? await client.call(domain: "music_assistant", service: "get_queue", entityID: entityID, response: true)
+    }
+
+    private var musicAssistantEntry: String?
+    /// Music Assistant's favorites of one kind; nil without Music Assistant.
+    func musicAssistantFavorites(_ type: String) async -> HomeAssistantValue? {
+        guard enabled, connection == .connected, let client, HomeAssistantLibraryItem.types.contains(type) else { return nil }
+        if musicAssistantEntry == nil { musicAssistantEntry = try? await client.configEntries(domain: "music_assistant").first }
+        guard let entry = musicAssistantEntry else { return nil }
+        return try? await client.call(domain: "music_assistant", service: "get_library", entityID: nil,
+                                      data: ["config_entry_id": .string(entry), "media_type": .string(type),
+                                             "favorite": .bool(true), "limit": .number(50)], response: true)
+    }
+
+    /// Starts a library item on a speaker, replacing its queue.
+    func playMusicAssistant(_ item: HomeAssistantLibraryItem, on entityID: String) {
+        guard enabled, connection == .connected, let client, entities[entityID]?.domain == "media_player",
+              item.uri.utf8.count <= 1024, HomeAssistantLibraryItem.types.contains(item.type) else { return }
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await client.call(domain: "music_assistant", service: "play_media", entityID: entityID,
+                                          data: ["media_id": .string(item.uri), "media_type": .string(item.type),
+                                                 "enqueue": .string("replace")])
+            } catch { self?.failure = error as? HomeAssistantFailure ?? .network }
+        }
     }
 
     func perform(_ service: String, entityID: String, data: [String: HomeAssistantValue] = [:]) {

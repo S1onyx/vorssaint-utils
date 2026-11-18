@@ -40,16 +40,18 @@ struct NotchHomeAssistantEntityTile: View, Equatable {
     private var tight: Bool { height < 100 }
     private var packed: Bool { dimmable || !readings.isEmpty }
     private var compressed: Bool { dimmable && readings.count > 1 }
-    private var dimmable: Bool { entity?.domain == "light" && entity?.hasBrightness == true }
+    /// Dimmable lights and positionable covers share the slider.
+    private var dimmable: Bool { (entity?.domain == "light" && entity?.hasBrightness == true) || entity?.hasPosition == true }
     private var interactive: Bool { connected && entity?.available == true && entity?.eligible == true && !pending }
     private var percent: Double {
         if editing { return draft }
         if pending, let requestedBrightness { return requestedBrightness }
-        return entity?.brightnessPercent ?? 0
+        return entity?.levelPercent ?? 0
     }
     private var entitySymbol: String {
         if entity?.domain == "light", entity?.state == "on" { return "lightbulb.fill" }
         if entity?.domain == "switch", entity?.state == "on" { return "powerplug.fill" }
+        if entity?.domain == "cover", (entity?.levelPercent ?? 0) > 0 || entity?.state == "open" { return "window.shade.open" }
         return entity?.symbol ?? "house"
     }
     private var tint: Color {
@@ -69,7 +71,7 @@ struct NotchHomeAssistantEntityTile: View, Equatable {
     private var fill: Double {
         guard entity?.available == true else { return 0 }
         if dimmable { return percent / 100 }
-        return entity?.state == "on" ? 1 : 0
+        return entity?.state == "on" || entity?.state == "open" ? 1 : 0
     }
     private var displayedValue: String {
         guard columns >= 4, let entity, entity.available, entity.domain != "climate" else { return reading.value }
@@ -136,17 +138,20 @@ struct NotchHomeAssistantEntityTile: View, Equatable {
         .accessibilityActions {
             if entity?.hasColor == true { Button(text[.selectColor]) { showingColor = true } }
         }
-        .onAppear { draft = entity?.brightnessPercent ?? 0 }
+        .onAppear { draft = entity?.levelPercent ?? 0 }
         .onChange(of: entity) {
-            if !editing && (!pending || requestedBrightness == nil) { draft = entity?.brightnessPercent ?? 0 }
+            if !editing && (!pending || requestedBrightness == nil) { draft = entity?.levelPercent ?? 0 }
         }
-        .onChange(of: pending) { if !pending { editing = false; requestedBrightness = nil; draft = entity?.brightnessPercent ?? 0 } }
-        .onChange(of: connected) { if !connected { editing = false; requestedBrightness = nil; draft = entity?.brightnessPercent ?? 0 } }
+        .onChange(of: pending) { if !pending { editing = false; requestedBrightness = nil; draft = entity?.levelPercent ?? 0 } }
+        .onChange(of: connected) { if !connected { editing = false; requestedBrightness = nil; draft = entity?.levelPercent ?? 0 } }
         .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: entity?.rgbColor)
     }
     private var actionHint: String {
         guard let service = entity?.primaryService else { return text[.details] }
         if service == "turn_off" { return text[.off] }
+        if service == "open_cover" { return text[.open] }
+        if service == "close_cover" { return text[.close] }
+        if service == "stop_cover" { return text[.stop] }
         if entity?.domain == "light" || entity?.domain == "switch" { return text[.on] }
         return text[.run]
     }
@@ -187,7 +192,7 @@ struct NotchHomeAssistantEntityTile: View, Equatable {
             .font(.system(size: compressed || dense && packed ? 12 : packed ? 16 : dense ? 18 : 22, weight: .medium))
             .contentTransition(.symbolEffect(.replace))
             .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: entitySymbol)
-            .foregroundStyle(entity?.state == "on" ? tint : .secondary)
+            .foregroundStyle(entity?.state == "on" || fill > 0 ? tint : .secondary)
             .opacity(pending ? 0.35 : 1)
             .overlay {
                 if pending { ProgressView().controlSize(.mini).scaleEffect(0.65) }
@@ -211,7 +216,7 @@ struct NotchHomeAssistantEntityTile: View, Equatable {
         }
         .controlSize(.mini).tint(tint).frame(height: 14)
         .disabled(!interactive)
-        .accessibilityLabel(text[.brightness] + ": " + name)
+        .accessibilityLabel(text[entity?.hasPosition == true ? .position : .brightness] + ": " + name)
     }
 
     private var cardReading: some View {

@@ -123,6 +123,11 @@ holds mute, the level, the player's input (`select_source`) and speaker grouping
 (`media_player.join`/`unjoin`): checked speakers play together, choose one again to
 remove it. Only commands the player advertises in `supported_features` are offered.
 
+When nothing plays, the play button resumes the speaker's last queue (`media_play`).
+The house-note button opens your Music Assistant favorites (playlists, albums, radio,
+tracks, artists) through `music_assistant.get_library`; click one to play it on the
+speaker, replacing its queue (`music_assistant.play_media`).
+
 The list button beside the bars shows the queue of a Music Assistant player through
 `music_assistant.get_queue`: the current and the next entry, with **Skip**. Home
 Assistant returns no further entries, and other players have no queue to show.

@@ -89,6 +89,21 @@ enum HomeAssistantTests {
         suite.expect(queue.next?.title == "C" && queue.next?.imageURL == nil, "a local image path is not loaded")
         suite.expect(HomeAssistantQueueItem.upNext(.null, entityID: "media_player.office").current == nil,
                      "a missing queue reads as empty")
+
+        let blind = entity("cover.office", state: "open", attributes: ["supported_features": .number(15), "current_position": .number(40)])
+        suite.expect(blind.hasPosition && blind.levelPercent == 40 && blind.primaryService == "close_cover",
+                     "a positioned open cover slides and closes on click")
+        let moving = entity("cover.office", state: "closing", attributes: ["supported_features": .number(15)])
+        suite.expect(moving.primaryService == "stop_cover", "a moving cover stops on click")
+        let closed = entity("cover.office", state: "closed", attributes: ["supported_features": .number(3), "current_position": .number(0)])
+        suite.expect(!closed.hasPosition && closed.primaryService == "open_cover", "a closed cover opens; no position, no slider")
+        let library: HomeAssistantValue = .object(["items": .array([
+            .object(["name": .string("Chill"), "uri": .string("library://playlist/1"), "media_type": .string("playlist"),
+                     "image": .string("https://img.example/c.jpg")]),
+            .object(["name": .string("No URI")])])])
+        let items = HomeAssistantLibraryItem.list(library, type: "playlist")
+        suite.expect(items.count == 1 && items[0].uri == "library://playlist/1" && items[0].imageURL != nil,
+                     "library items need a name and a URI")
     }
 
     static func entity(_ id: String = "light.desk", state: String = "off",

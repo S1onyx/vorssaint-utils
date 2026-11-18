@@ -8,17 +8,24 @@ import SwiftUI
 struct HomeAssistantMusicStrings {
     let group, leaveGroup, input, nothingPlaying, shuffle, repeatOff, repeatAll, repeatOne: String
     let queue, nowPlaying, upNext, noQueue, skip: String
+    let library, playlists, albums, radio, tracks, artists, noLibrary, noFavorites, resume: String
     static func localized(_ language: AppLanguage) -> Self {
         language == .de
             ? Self(group: "Lautsprechergruppe", leaveGroup: "Gruppe auflösen", input: "Eingang",
                    nothingPlaying: "Keine Wiedergabe", shuffle: "Zufallswiedergabe", repeatOff: "Wiederholen: Aus",
                    repeatAll: "Wiederholen: Alle", repeatOne: "Wiederholen: Titel", queue: "Warteschlange",
                    nowPlaying: "Jetzt", upNext: "Als Nächstes",
-                   noQueue: "Keine Warteschlange. Nur Music-Assistant-Player liefern eine.", skip: "Überspringen")
+                   noQueue: "Keine Warteschlange. Nur Music-Assistant-Player liefern eine.", skip: "Überspringen",
+                   library: "Musik starten", playlists: "Playlists", albums: "Alben", radio: "Radio", tracks: "Titel",
+                   artists: "Künstler", noLibrary: "Music Assistant ist in Home Assistant nicht eingerichtet.",
+                   noFavorites: "Keine Favoriten. Markiere in Music Assistant etwas mit dem Stern.", resume: "Fortsetzen")
             : Self(group: "Speaker group", leaveGroup: "Ungroup", input: "Input", nothingPlaying: "Nothing playing",
                    shuffle: "Shuffle", repeatOff: "Repeat: Off", repeatAll: "Repeat: All", repeatOne: "Repeat: One",
                    queue: "Queue", nowPlaying: "Now", upNext: "Up next",
-                   noQueue: "No queue. Only Music Assistant players provide one.", skip: "Skip")
+                   noQueue: "No queue. Only Music Assistant players provide one.", skip: "Skip",
+                   library: "Start music", playlists: "Playlists", albums: "Albums", radio: "Radio", tracks: "Tracks",
+                   artists: "Artists", noLibrary: "Music Assistant is not set up in Home Assistant.",
+                   noFavorites: "No favorites. Star something in Music Assistant.", resume: "Resume")
     }
 }
 
@@ -39,6 +46,8 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
     @State private var volumeDraft: Double?
     @State private var seekDraft: Double?
     @State private var showingQueue = false
+    @State private var showingLibrary = false
+    @AppStorage("notchHomeAssistantLibraryType") private var libraryType = "playlist"
 
     private var text: RadialMenuFeatureStrings { FeatureStrings.radialMenu(l10n.language) }
     private var strings: HomeAssistantMusicStrings { .localized(l10n.language) }
@@ -87,6 +96,7 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
             VStack(alignment: .trailing, spacing: 0) {
                 if showsCorner { HStack(spacing: 6) { corner() }.frame(height: 28) }
                 HStack(spacing: 8) {
+                    libraryButton
                     queueButton
                     accessory()
                     NotchLiveEqualizerBars(isPlaying: player.isPlaying, bars: 4, barWidth: 2.5, height: 15,
@@ -186,7 +196,8 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
                             offered: player.supports(.previous)).frame(width: slot)
             Button {
                 requestedPlaying = !playing
-                music.perform("media_play_pause")
+                // Nothing loaded: pick up where the speaker's queue left off.
+                music.perform(player.hasMedia ? "media_play_pause" : "media_play")
             } label: {
                 Image(systemName: playing ? "pause.fill" : "play.fill")
                     .font(.system(size: 28, weight: .semibold))
@@ -198,9 +209,9 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
             }
             .buttonStyle(NotchButtonStyle(cornerRadius: 22))
             .disabled(pending || !(player.supports(.pause) || player.supports(.play)))
+            .help(player.hasMedia ? text.mediaPlayPause : strings.resume)
             .keyboardShortcut(preview ? nil : KeyboardShortcut(.space, modifiers: []))
-            .accessibilityLabel(text.mediaPlayPause)
-            .help(text.mediaPlayPause)
+            .accessibilityLabel(player.hasMedia ? text.mediaPlayPause : strings.resume)
             .frame(width: slot)
             transportButton("forward.fill", title: text.mediaNext, size: 19, service: "media_next_track",
                             offered: player.supports(.next)).frame(width: slot)
@@ -234,6 +245,79 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
             .help(title)
             .accessibilityLabel(title)
         }
+    }
+
+    // MARK: Library
+
+    private var libraryTypes: [(String, String)] {
+        [("playlist", strings.playlists), ("album", strings.albums), ("radio", strings.radio),
+         ("track", strings.tracks), ("artist", strings.artists)]
+    }
+
+    /// Music Assistant favorites, played on this speaker with a click.
+    private var libraryButton: some View {
+        NotchIconButton(symbol: "music.note.house", title: strings.library, selected: showingLibrary) {
+            showingLibrary.toggle()
+            if showingLibrary { music.loadFavorites(libraryType) }
+        }
+        .disabled(!music.connected)
+        .popover(isPresented: $showingLibrary, arrowEdge: .bottom) { libraryPanel }
+    }
+
+    private var libraryPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker(strings.library, selection: $libraryType) {
+                ForEach(libraryTypes, id: \.0) { Text($0.1).tag($0.0) }
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            .onChange(of: libraryType) { music.loadFavorites(libraryType) }
+            if music.favoritesUnavailable {
+                Text(strings.noLibrary).font(.caption).foregroundStyle(.secondary)
+            } else if let items = music.favorites[libraryType] {
+                if items.isEmpty {
+                    Text(strings.noFavorites).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(items) { item in
+                                Button { music.play(item); showingLibrary = false } label: { libraryRow(item) }
+                                    .buttonStyle(NotchButtonStyle(cornerRadius: 8))
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 300)
+                }
+            } else {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+            }
+        }
+        .padding(12)
+        .frame(width: 340)
+    }
+
+    private func libraryRow(_ item: HomeAssistantLibraryItem) -> some View {
+        HStack(spacing: 10) {
+            cover(item.imageURL, size: 34, round: item.type == "artist")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                if let artist = item.artist {
+                    Text(artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "play.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private func cover(_ url: URL?, size: CGFloat, round: Bool = false) -> some View {
+        AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: {
+            Image(systemName: "music.note").foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).background(.quaternary)
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: round ? size / 2 : 7, style: .continuous))
     }
 
     // MARK: Queue
@@ -272,12 +356,7 @@ struct NotchHomeAssistantMusicView<Accessory: View, Corner: View>: View {
 
     private func queueRow(_ label: String, _ item: HomeAssistantQueueItem) -> some View {
         HStack(spacing: 10) {
-            AsyncImage(url: item.imageURL) { image in image.resizable().scaledToFill() } placeholder: {
-                Image(systemName: "music.note").foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity).background(.quaternary)
-            }
-            .frame(width: 40, height: 40)
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            cover(item.imageURL, size: 40)
             VStack(alignment: .leading, spacing: 1) {
                 Text(label.uppercased()).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
                 Text(item.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)

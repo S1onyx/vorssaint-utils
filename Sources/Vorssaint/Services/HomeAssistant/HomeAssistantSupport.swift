@@ -109,8 +109,20 @@ struct HomeAssistantEntity: Codable, Identifiable, Equatable, Sendable {
         switch domain {
         case "light", "switch": return state == "on" ? "turn_off" : "turn_on"
         case "scene", "script": return "turn_on"
+        case "cover":
+            // A moving cover stops; a resting one heads the other way.
+            if ["opening", "closing"].contains(state), supports(8) { return "stop_cover" }
+            let open = state == "open" || (attributes["current_position"]?.number ?? 0) > 0
+            return open ? (supports(2) ? "close_cover" : nil) : (supports(1) ? "open_cover" : nil)
         default: return nil
         }
+    }
+    /// A cover that reports and accepts a position takes the card's slider, as a dimmable light does.
+    var hasPosition: Bool { domain == "cover" && supports(4) }
+    /// The card's slider value: brightness for lights, position for covers.
+    var levelPercent: Double {
+        if hasPosition { return min(100, max(0, attributes["current_position"]?.number ?? (state == "open" ? 100 : 0))) }
+        return brightnessPercent
     }
     var brightnessPercent: Double {
         guard domain == "light", state == "on" else { return 0 }
@@ -532,6 +544,7 @@ struct HomeAssistantMediaPlayer: Equatable, Identifiable {
     func allows(_ service: String, data: [String: HomeAssistantValue]) -> Bool {
         switch service {
         case "media_play_pause": return data.isEmpty && (supports(.pause) || supports(.play))
+        case "media_play": return data.isEmpty && supports(.play)
         case "media_next_track": return data.isEmpty && supports(.next)
         case "media_previous_track": return data.isEmpty && supports(.previous)
         case "media_seek":
@@ -592,5 +605,33 @@ struct HomeAssistantQueueItem: Equatable {
     static func upNext(_ response: HomeAssistantValue, entityID: String) -> (current: Self?, next: Self?) {
         let queue = response.object?[entityID]?.object
         return (Self(queue?["current_item"]), Self(queue?["next_item"]))
+    }
+}
+
+/// A Music Assistant library entry, read from `music_assistant.get_library`.
+struct HomeAssistantLibraryItem: Equatable, Identifiable {
+    static let types = ["playlist", "album", "radio", "track", "artist"]
+    let title: String
+    let uri: String
+    let type: String
+    let artist: String?
+    let imageURL: URL?
+    var id: String { uri }
+
+    init?(_ value: HomeAssistantValue, type fallback: String) {
+        guard let item = value.object, let title = item["name"]?.string, !title.isEmpty,
+              let uri = item["uri"]?.string, !uri.isEmpty else { return nil }
+        self.title = title; self.uri = uri
+        let type = item["media_type"]?.string ?? fallback
+        self.type = Self.types.contains(type) ? type : fallback
+        let artists = item["artists"]?.array?.compactMap { $0.object?["name"]?.string ?? $0.string } ?? []
+        artist = artists.isEmpty ? item["owner"]?.string : artists.joined(separator: ", ")
+        let image = item["image"]
+        imageURL = (image?.string ?? image?.object?["path"]?.string)
+            .flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
+    }
+
+    static func list(_ response: HomeAssistantValue, type: String) -> [Self] {
+        (response.object?["items"]?.array ?? []).compactMap { Self($0, type: type) }
     }
 }

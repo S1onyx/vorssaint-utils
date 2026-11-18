@@ -113,13 +113,22 @@ actor HomeAssistantClient {
 
     func perform(_ action: HomeAssistantAction) async throws { _ = try await request(action.message) }
 
-    /// A read-only action whose answer comes back as its response, such as
-    /// `music_assistant.get_queue`.
-    func response(domain: String, service: String, entityID: String) async throws -> HomeAssistantValue {
-        let result = try await request(["type": .string("call_service"), "domain": .string(domain),
-                                        "service": .string(service), "target": .object(["entity_id": .string(entityID)]),
-                                        "return_response": .bool(true)])
+    /// An action outside the card whitelist, such as Music Assistant's. With
+    /// `response` its answer comes back, as `music_assistant.get_queue` gives one.
+    func call(domain: String, service: String, entityID: String?, data: [String: HomeAssistantValue] = [:],
+              response: Bool = false) async throws -> HomeAssistantValue {
+        var message: [String: HomeAssistantValue] = ["type": .string("call_service"), "domain": .string(domain),
+                                                     "service": .string(service), "service_data": .object(data)]
+        if let entityID { message["target"] = .object(["entity_id": .string(entityID)]) }
+        if response { message["return_response"] = .bool(true) }
+        let result = try await request(message)
         return result.object?["response"] ?? .null
+    }
+
+    /// The IDs of an integration's config entries, which some of its actions name.
+    func configEntries(domain: String) async throws -> [String] {
+        let result = try await request(["type": .string("config_entries/get"), "domain": .string(domain)])
+        return result.array?.compactMap { $0.object?["entry_id"]?.string } ?? []
     }
 
     private func request(_ message: [String: HomeAssistantValue]) async throws -> HomeAssistantValue {

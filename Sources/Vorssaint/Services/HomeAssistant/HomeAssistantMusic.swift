@@ -22,6 +22,9 @@ final class HomeAssistantMusic: ObservableObject {
     /// Music Assistant's current and next entry; nil until read, or when the player has no queue.
     @Published private(set) var upNext: (current: HomeAssistantQueueItem?, next: HomeAssistantQueueItem?)?
     @Published private(set) var queueLoading = false
+    /// Music Assistant favorites by media type; a missing type is not read yet, an empty one has none.
+    @Published private(set) var favorites: [String: [HomeAssistantLibraryItem]] = [:]
+    @Published private(set) var favoritesUnavailable = false
 
     private let home = HomeAssistantService.shared
     private let defaults: UserDefaults
@@ -123,6 +126,20 @@ final class HomeAssistantMusic: ObservableObject {
         guard allows(command), let (service, data) = Self.service(for: command) else { return false }
         perform(service, data: data)
         return true
+    }
+
+    func loadFavorites(_ type: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let response = await self.home.musicAssistantFavorites(type) else { self.favoritesUnavailable = true; return }
+            self.favoritesUnavailable = false
+            self.favorites[type] = HomeAssistantLibraryItem.list(response, type: type)
+        }
+    }
+
+    func play(_ item: HomeAssistantLibraryItem) {
+        guard let id = active?.id else { return }
+        home.playMusicAssistant(item, on: id)
     }
 
     /// Reads Music Assistant's current and next entry for the shown speaker.
