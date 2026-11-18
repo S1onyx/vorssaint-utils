@@ -231,6 +231,7 @@ struct NotchHomeAssistantView: View {
             HStack {
                 HomeAssistantConnectionStatus(connection: state.connection, failure: state.failure, text: text)
                 Spacer(minLength: 4)
+                HomeAssistantHeaderExtras()
                 if let url = service.dashboardURL {
                     Button { NSWorkspace.shared.open(url) } label: { Image(systemName: "arrow.up.forward.app") }
                         .help(text[.dashboard]).accessibilityLabel(text[.dashboard]).disabled(preview)

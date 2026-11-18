@@ -665,3 +665,34 @@ struct HomeAssistantLibraryItem: Equatable, Identifiable {
         (response.object?["items"]?.array ?? []).compactMap { Self($0, type: type) }
     }
 }
+
+/// A persistent notification from Home Assistant, such as "Washing machine done".
+struct HomeAssistantNotification: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let message: String
+    let created: Date
+
+    init?(id: String, _ value: HomeAssistantValue) {
+        guard let item = value.object, !id.isEmpty, id.utf8.count <= 256 else { return nil }
+        let message = item["message"]?.string ?? ""
+        let title = item["title"]?.string ?? ""
+        guard !(message.isEmpty && title.isEmpty) else { return nil }
+        self.id = id
+        // ponytail: markdown is shown as typed; strip it if notifications look noisy.
+        self.title = String(title.prefix(200)); self.message = String(message.prefix(2000))
+        created = item["created_at"]?.string.flatMap(HomeAssistantMediaPlayer.date) ?? Date()
+    }
+
+    /// Applies one subscription event; returns the list and the entries that are new.
+    static func apply(_ kind: String, _ changes: [String: HomeAssistantValue], to list: [Self]) -> ([Self], [Self]) {
+        let parsed = changes.compactMap { Self(id: $0.key, $0.value) }
+        var byID = Dictionary(uniqueKeysWithValues: (kind == "current" ? [] : list).map { ($0.id, $0) })
+        switch kind {
+        case "removed": changes.keys.forEach { byID.removeValue(forKey: $0) }
+        default: parsed.forEach { byID[$0.id] = $0 }
+        }
+        let added = kind == "added" ? parsed : []
+        return (byID.values.sorted { $0.created > $1.created }, added)
+    }
+}

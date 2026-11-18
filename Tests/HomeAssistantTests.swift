@@ -127,6 +127,14 @@ enum HomeAssistantTests {
         suite.expect(entity("camera.door", attributes: ["entity_picture": .string("/api/camera_proxy/camera.door?token=t")])
                         .pictureURL(base: URL(string: "https://ha.example"))?.absoluteString
                      == "https://ha.example/api/camera_proxy/camera.door?token=t", "camera pictures resolve against the server")
+
+        let note: HomeAssistantValue = .object(["title": .string("Wash"), "message": .string("Done"),
+                                                "created_at": .string("2026-11-18T10:00:00+00:00")])
+        let (current, none) = HomeAssistantNotification.apply("current", ["a": note], to: [])
+        let (added, fresh) = HomeAssistantNotification.apply("added", ["b": note], to: current)
+        let (removed, _) = HomeAssistantNotification.apply("removed", ["a": .null], to: added)
+        suite.expect(current.count == 1 && none.isEmpty && added.count == 2 && fresh.map(\.id) == ["b"]
+                     && removed.map(\.id) == ["b"], "notifications follow current, added and removed; only added ones alert")
     }
 
     static func entity(_ id: String = "light.desk", state: String = "off",

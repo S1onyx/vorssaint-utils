@@ -45,6 +45,8 @@ final class HomeAssistantWebSocket: NSObject, HomeAssistantTransport, URLSession
 enum HomeAssistantEvent: Sendable {
     case snapshot([HomeAssistantEntity])
     case changed(String, HomeAssistantValue)
+    /// Persistent notifications: `current`, `added`, `updated` or `removed`, keyed by notification ID.
+    case notifications(String, [String: HomeAssistantValue])
 }
 
 /// One actor owns message IDs, continuations and socket lifetime. No command is retried.
@@ -125,6 +127,10 @@ actor HomeAssistantClient {
         return result.object?["response"] ?? .null
     }
 
+    func subscribeNotifications() async throws {
+        _ = try await request(["type": .string("persistent_notification/subscribe")])
+    }
+
     /// The IDs of an integration's config entries, which some of its actions name.
     func configEntries(domain: String) async throws -> [String] {
         let result = try await request(["type": .string("config_entries/get"), "domain": .string(domain)])
@@ -169,6 +175,9 @@ actor HomeAssistantClient {
                    let data = message["event"]?.object?["data"]?.object,
                    let id = data["entity_id"]?.string, let value = data["new_state"] {
                     events?.yield(.changed(id, value))
+                } else if message["type"]?.string == "event", let event = message["event"]?.object,
+                          let kind = event["type"]?.string, let list = event["notifications"]?.object {
+                    events?.yield(.notifications(kind, list))
                 } else if ["result", "pong"].contains(message["type"]?.string ?? ""),
                           let number = message["id"]?.number, number >= 1, number < Double(Int.max), number.rounded() == number {
                     let id = Int(number)

@@ -123,6 +123,13 @@ the island on the camera's live picture with **Open door**, which asks before it
 unlocks (or opens, when the lock supports it). This needs the background connection
 described below.
 
+## Notifications
+
+With **Show notifications** on (the default), the app subscribes to Home Assistant's
+persistent notifications. A new one is posted as a macOS notification, which the
+island shows where notification mirroring is on. A bell with the count appears in
+the island's Home Assistant header; its list dismisses notifications on the server.
+
 ## Media players on the music page
 
 Home Assistant `media_player` entities, including Music Assistant players, are

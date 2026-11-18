@@ -52,6 +52,8 @@ final class HomeAssistantMusic: ObservableObject {
         // connection stays up while Home Assistant is enabled and the Mac awake.
         // ponytail: one idle WebSocket; drop this surface if that ever matters.
         home.setVisible(true, surface: surface)
+        // ponytail: a macOS notification; the island mirrors it where notification mirroring is on.
+        home.onNotification = { Notifier.post(title: $0.title.isEmpty ? "Home Assistant" : $0.title, body: $0.message) }
         refresh()
     }
 

@@ -148,6 +148,22 @@ final class HomeAssistantService: ObservableObject {
     var doorbellLockID: String { defaults.string(forKey: DefaultsKey.notchHomeAssistantDoorbellLock) ?? "" }
     func setDoorbell(_ id: String, key: String) { defaults.set(id, forKey: key); objectWillChange.send() }
     func endRinging() { ringing = nil }
+    /// Called for each notification that arrives while connected.
+    var onNotification: ((HomeAssistantNotification) -> Void)?
+    /// Home Assistant's persistent notifications, newest first.
+    @Published private(set) var notifications: [HomeAssistantNotification] = []
+    var showsNotifications: Bool { defaults.bool(forKey: DefaultsKey.notchHomeAssistantNotifications) }
+    func setShowsNotifications(_ value: Bool) {
+        defaults.set(value, forKey: DefaultsKey.notchHomeAssistantNotifications)
+        if !value { notifications = [] }
+        retry()
+    }
+    func dismissNotification(_ id: String) {
+        guard let client, connection == .connected else { return }
+        notifications.removeAll { $0.id == id }
+        Task { _ = try? await client.call(domain: "persistent_notification", service: "dismiss", entityID: nil,
+                                          data: ["notification_id": .string(id)]) }
+    }
     private let defaults: UserDefaults
     private let credentials: any HomeAssistantCredentialStore
     private let makeTransport: (URL) -> any HomeAssistantTransport
@@ -411,9 +427,17 @@ final class HomeAssistantService: ObservableObject {
                         case .snapshot(let values):
                             self.store.snapshot(values)
                             let newlyConnected = self.connection != .connected
-                            if newlyConnected { self.failure = nil }
+                            if newlyConnected {
+                                self.failure = nil
+                                if self.showsNotifications { Task { try? await client.subscribeNotifications() } }
+                            }
                             self.connection = .connected; delay = 1
                             self.refreshTask = nil
+                        case .notifications(let kind, let changes):
+                            let (list, added) = HomeAssistantNotification.apply(kind, changes, to: self.notifications)
+                            self.notifications = list
+                            added.forEach { self.onNotification?($0) }
+                            continue
                         case .changed(let id, let value):
                             let previous = self.store.entities[id]
                             self.store.change(id: id, value: value)
