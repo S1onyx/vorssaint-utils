@@ -80,7 +80,8 @@ final class HomeAssistantMusic: ObservableObject {
         }
         if offered != players { players = offered }
         let next = HomeAssistantMediaPlayer.choose(selection: selection, players: all,
-                               macPlaying: music.macPlayback?.isPlaying == true)
+                               macPlaying: music.macPlayback?.isPlaying == true,
+                               ignored: Set(defaults.stringArray(forKey: DefaultsKey.notchHomeAssistantMusicIgnored) ?? []))
         if next?.id != active?.id { upNext = nil; queueTask?.cancel(); queueLoading = false }
         if next != active { active = next }
         loadArtwork(next?.pictureURL(base: home.dashboardURL))

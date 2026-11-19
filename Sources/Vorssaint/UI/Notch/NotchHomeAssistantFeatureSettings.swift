@@ -25,6 +25,15 @@ struct HomeAssistantFeatureSettings: View {
             }
         }
         SettingsCard {
+            heading(text["speakers"], "hifispeaker.2.fill")
+            Text(text["speakersHint"]).font(.caption).foregroundStyle(.secondary)
+            ForEach(speakers) { speaker in
+                Toggle(isOn: Binding(get: { !ignored.contains(speaker.id) }, set: { on in
+                    ignored = on ? ignored.filter { $0 != speaker.id } : ignored + [speaker.id]
+                })) { Text(service.displayName(speaker.id)) }
+            }
+        }
+        SettingsCard {
             heading(text["notifications"], "bell.badge")
             Text(text["notificationsHint"]).font(.caption).foregroundStyle(.secondary)
             Toggle(isOn: Binding(get: { service.showsNotifications }, set: { service.setShowsNotifications($0) })) {
@@ -44,6 +53,17 @@ struct HomeAssistantFeatureSettings: View {
     }
 
     @AppStorage(DefaultsKey.notchHomeAssistantPresence) private var presence = true
+    private var ignored: [String] {
+        get { UserDefaults.standard.stringArray(forKey: DefaultsKey.notchHomeAssistantMusicIgnored) ?? [] }
+        nonmutating set {
+            UserDefaults.standard.set(newValue, forKey: DefaultsKey.notchHomeAssistantMusicIgnored)
+            service.objectWillChange.send() // redraws this card and re-runs the automatic choice
+        }
+    }
+    private var speakers: [HomeAssistantEntity] {
+        service.entities.values.filter { $0.domain == "media_player" }
+            .sorted { service.displayName($0.id).localizedStandardCompare(service.displayName($1.id)) == .orderedAscending }
+    }
     @AppStorage(DefaultsKey.notchHomeAssistantCommandBar) private var commandBar = true
 
     private func glancePicker(_ index: Int) -> some View {

@@ -602,10 +602,11 @@ struct HomeAssistantMediaPlayer: Equatable, Identifiable {
     }
     /// A chosen player wins while Home Assistant knows it; otherwise a playing
     /// player fills in only while this Mac is silent.
-    static func choose(selection: String?, players: [Self], macPlaying: Bool) -> Self? {
+    /// Ignored players are skipped by the automatic choice only; picking one by hand still works.
+    static func choose(selection: String?, players: [Self], macPlaying: Bool, ignored: Set<String> = []) -> Self? {
         if let selection { return players.first { $0.id == selection && $0.entity.available } }
         guard !macPlaying else { return nil }
-        return players.filter { $0.isPlaying && $0.hasMedia }.min { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return players.filter { $0.isPlaying && $0.hasMedia && !ignored.contains($0.id) }.min { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 }
 

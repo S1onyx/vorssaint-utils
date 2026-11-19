@@ -63,6 +63,11 @@ enum HomeAssistantTests {
         let players = [player, HomeAssistantMediaPlayer(bare)!]
         suite.expect(HomeAssistantMediaPlayer.choose(selection: nil, players: players, macPlaying: true) == nil,
                      "this Mac's playback wins in automatic mode")
+        suite.expect(HomeAssistantMediaPlayer.choose(selection: nil, players: players, macPlaying: false,
+                                                     ignored: ["media_player.kitchen"])?.id != "media_player.kitchen"
+                     && HomeAssistantMediaPlayer.choose(selection: "media_player.kitchen", players: players, macPlaying: false,
+                                                        ignored: ["media_player.kitchen"])?.id == "media_player.kitchen",
+                     "automatic skips ignored speakers; picking one by hand still works")
         suite.expect(HomeAssistantMediaPlayer.choose(selection: nil, players: players, macPlaying: false)?.id == "media_player.kitchen",
                      "a playing Home Assistant player fills a silent Mac")
         suite.expect(HomeAssistantMediaPlayer.choose(selection: "media_player.radio", players: players, macPlaying: true)?.id
